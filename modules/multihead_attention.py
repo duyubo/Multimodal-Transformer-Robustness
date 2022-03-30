@@ -4,49 +4,37 @@ from torch.nn import Parameter
 import torch.nn.functional as F
 import sys
 
-# Code adapted from the fairseq repo.
+__all__ = ["MultiheadAttention"]
 
+# multi head sttention based model, init directly with layers not by configuration
 class MultiheadAttention(nn.Module):
-    """Multi-headed attention.
-    See "Attention Is All You Need" for more details.
-    """
-
-    def __init__(self, embed_dim, num_heads, attn_dropout=0.,
-                 bias=True, add_bias_kv=False, add_zero_attn=False):
-        super().__init__()
-        self.embed_dim = embed_dim
+    def __init__(self, in_proj_weight, in_proj_bias, out_proj, embed_dim_in, head_dim, num_heads, attn_dropout = 0.):
+        super(MultiheadAttention, self).__init__()
+        # dim of input q, k, v
+        self.embed_dim_in = embed_dim_in
+        # we keep the input and output dimension as fixed
+        self.embed_dim_out = self.embed_dim_in
+        # output dim of W^qq, W^kk, W^vv
+        self.embed_dim = head_dim * num_heads
+        # number of heads (multihead attention module)
         self.num_heads = num_heads
         self.attn_dropout = attn_dropout
-        self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
+        # dim of a single head
+        self.head_dim = head_dim
+        # sqrt(d_k)
         self.scaling = self.head_dim ** -0.5
+        # W_q, W_k, W_v
+        self.in_proj_weight = in_proj_weight
+        #b_q, b_k, b_v
+        self.in_proj_bias = in_proj_bias
+        #out linear layer
+        self.out_proj = out_proj
 
-        self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim, embed_dim))
-        self.register_parameter('in_proj_bias', None)
-        if bias:
-            self.in_proj_bias = Parameter(torch.Tensor(3 * embed_dim))
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-
-        if add_bias_kv:
-            self.bias_k = Parameter(torch.Tensor(1, 1, embed_dim))
-            self.bias_v = Parameter(torch.Tensor(1, 1, embed_dim))
-        else:
-            self.bias_k = self.bias_v = None
-
-        self.add_zero_attn = add_zero_attn
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.xavier_uniform_(self.in_proj_weight)
-        nn.init.xavier_uniform_(self.out_proj.weight)
-        if self.in_proj_bias is not None:
-            nn.init.constant_(self.in_proj_bias, 0.)
-            nn.init.constant_(self.out_proj.bias, 0.)
-        if self.bias_k is not None:
-            nn.init.xavier_normal_(self.bias_k)
-        if self.bias_v is not None:
-            nn.init.xavier_normal_(self.bias_v)
+        """ TO be double checked !!! """
+        assert self.out_proj.weight.data.size()[0] == self.embed_dim_out
+        assert self.out_proj.weight.data.size()[1] == self.embed_dim
+        assert 3 * self.embed_dim == in_proj_weight.size()[0]
+        assert self.embed_dim_in == in_proj_weight.size()[1]
 
     def forward(self, query, key, value, attn_mask=None):
         """Input shape: Time x Batch x Channel
@@ -60,7 +48,7 @@ class MultiheadAttention(nn.Module):
         kv_same = key.data_ptr() == value.data_ptr()
 
         tgt_len, bsz, embed_dim = query.size()
-        assert embed_dim == self.embed_dim
+        assert embed_dim == self.embed_dim_in
         assert list(query.size()) == [tgt_len, bsz, embed_dim]
         assert key.size() == value.size()
 
@@ -84,54 +72,32 @@ class MultiheadAttention(nn.Module):
             v = self.in_proj_v(value)
         q = q * self.scaling
 
-        if self.bias_k is not None:
-            assert self.bias_v is not None
-            k = torch.cat([k, self.bias_k.repeat(1, bsz, 1)])
-            v = torch.cat([v, self.bias_v.repeat(1, bsz, 1)])
-            if attn_mask is not None:
-                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(attn_mask.size(0), 1)], dim=1)
-
         q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-        if k is not None:
-            k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-        if v is not None:
-            v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
+        k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
+        v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
 
         src_len = k.size(1)
 
-        if self.add_zero_attn:
-            src_len += 1
-            k = torch.cat([k, k.new_zeros((k.size(0), 1) + k.size()[2:])], dim=1)
-            v = torch.cat([v, v.new_zeros((v.size(0), 1) + v.size()[2:])], dim=1)
-            if attn_mask is not None:
-                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(attn_mask.size(0), 1)], dim=1)
-        
         attn_weights = torch.bmm(q, k.transpose(1, 2))
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
 
-        if attn_mask is not None:
-            try:
-                attn_weights += attn_mask.unsqueeze(0)
-            except:
-                print(attn_weights.shape)
-                print(attn_mask.unsqueeze(0).shape)
-                assert False
+        try:
+            attn_weights += attn_mask.unsqueeze(0)
+        except:
+            print(attn_weights.shape)
+            print(attn_mask.unsqueeze(0).shape)
+            assert False
                 
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(attn_weights)
-        # attn_weights = F.relu(attn_weights)
-        # attn_weights = attn_weights / torch.max(attn_weights)
         attn_weights = F.dropout(attn_weights, p=self.attn_dropout, training=self.training)
 
         attn = torch.bmm(attn_weights, v)
         assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
 
-        attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
+        attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, self.embed_dim)
         attn = self.out_proj(attn)
 
-        # average attention weights over heads
-        attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-        attn_weights = attn_weights.sum(dim=1) / self.num_heads
-        return attn, attn_weights
+        return attn
 
     def in_proj_qkv(self, query):
         return self._in_proj(query).chunk(3, dim=-1)
