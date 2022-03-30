@@ -175,18 +175,19 @@ class DynamicMultiheadAttention(MultiheadAttention):
         """
         dimension_list = [3, self.num_heads, self.head_dim, self.embed_dim_in]
         importance = torch.sum(
-            torch.abs(self.in_proj_weight.data.view(dimension_list)), dim = tuple(i for i in range(total_dimension) if i != dimension)
+            torch.abs(self.in_proj_weight.data.view(dimension_list)), dim = (3)
         )
-        sorted_importance, sorted_idx = torch.sort(importance, dim = 0, descending=True)
-        
-        renormalized_index = functools.reduce(lambda x, y: x * y, dimension_list[ : dimension + 1])
+        sorted_importance, sorted_idx = torch.sort(importance, dim = dimension, descending=True)
+        renormalized_index = functools.reduce(lambda x, y: x * y, dimension_list[ : dimension])
+
+        print(sorted_idx)
         # sort in_proj_weight
         self.in_proj_weight.data = torch.index_select(
             self.in_proj_weight.data, 0, sorted_idx * renormalized_index
         ) 
         # sort in_proj_bias with the same index as in_proj_weight
         self.in_proj_bias.data = torch.index_select(
-            self.in_proj_weight.bias, 0, sorted_idx * renormalized_index
+            self.in_proj_bias.data, 0, sorted_idx * renormalized_index
         )
         return sorted_idx
     
@@ -233,3 +234,48 @@ class DynamicMultiheadAttention(MultiheadAttention):
         bias = self.out_proj.bias[:self.active_head_dim * self.active_num_heads]
         return F.linear(input, weight, bias)
 
+import torch.optim as optim
+import torch
+import random
+
+if __name__ == '__main__':
+    torch.manual_seed(0)
+    embed_dim_in = 20
+    head_dim = 5
+    num_heads = 8
+
+    """ Test basic construct function"""
+    dm = DynamicMultiheadAttention(embed_dim_in, head_dim, num_heads, attn_dropout=0.)
+    
+    """Test forward function"""
+    x = torch.rand(30, 50, 20)
+    t = torch.ones(30, 30)
+    future_mask = torch.triu(t.float().fill_(float('-inf')).type_as(t), 1+abs(0))
+    print(dm(x, x, x, future_mask).size())
+    
+    """Test get active subnet"""
+    embed_dim_per_head_active = 4
+    num_heads_active = 5
+    subnet = dm.get_active_subnet(embed_dim_per_head_active, num_heads_active)
+    print(subnet(x, x, x, future_mask).size())
+
+    """Test reorder hidden dimensions"""
+    print(dm.sort_hidden_layers())
+    """Test reorder heads"""
+    print(dm.sort_heads())
+    
+    optimizer = optim.SGD(dm.parameters(), lr=0.000001, momentum=0.9)
+
+    dm.train()
+    for i in range(100):
+      dm.zero_grad()
+      """Test random sample subnet and train"""
+      dm.active_head_dim = random.randint(1, embed_dim_per_head_active)
+      dm.active_num_heads = random.randint(1, num_heads_active)
+      loss = dm(x, x, x, future_mask).abs().sum()
+
+      #subnet.zero_grad()
+      #loss = subnet(x, x, x, future_mask).abs().sum()
+      print(loss)
+      loss.backward()
+      optimizer.step()
