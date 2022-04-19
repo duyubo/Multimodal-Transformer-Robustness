@@ -5,10 +5,7 @@ import os
 from scipy import signal
 import torch
 
-if torch.cuda.is_available():
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
-else:
-    torch.set_default_tensor_type('torch.FloatTensor')
+
     
 ############################################################################################
 # This file provides basic processing script for the multimodal datasets we use. For other
@@ -23,16 +20,13 @@ class Multimodal_Datasets(Dataset):
         dataset = pickle.load(open(dataset_path, 'rb'))
 
         # These are torch tensors
-        self.vision = torch.tensor(dataset[split_type]['vision'].astype(np.float32)).cpu().detach()
-        self.text = torch.tensor(dataset[split_type]['text'].astype(np.float32)).cpu().detach()
-        self.audio = dataset[split_type]['audio'].astype(np.float32)
+        self.vision = torch.tensor(dataset[split_type]['vision']).float()
+        self.text = torch.tensor(dataset[split_type]['text']).float()
+        self.audio = dataset[split_type]['audio']
         self.audio[self.audio == -np.inf] = 0
-        self.audio = torch.tensor(self.audio).cpu().detach()
-        self.labels = torch.tensor(dataset[split_type]['labels'].astype(np.float32)).cpu().detach()
-        
-        # Note: this is STILL an numpy array
-        self.meta = dataset[split_type]['id'] if 'id' in dataset[split_type].keys() else None
-       
+        self.audio = torch.tensor(self.audio).float()
+        self.labels = torch.tensor(dataset[split_type]['labels']).float()
+
         self.data = data
         
         self.n_modalities = 3 # vision/ text/ audio
@@ -50,10 +44,9 @@ class Multimodal_Datasets(Dataset):
     def __getitem__(self, index):
         X = (index, self.text[index], self.audio[index], self.vision[index])
         Y = self.labels[index]
-        META = (0,0,0) if self.meta is None else (self.meta[index][0], self.meta[index][1], self.meta[index][2])
-        if self.data == 'mosi':
-            META = (self.meta[index][0].decode('UTF-8'), self.meta[index][1].decode('UTF-8'), self.meta[index][2].decode('UTF-8'))
-        if self.data == 'iemocap':
-            Y = torch.argmax(Y, dim=-1)
-        return X, Y, META        
+        return X, Y
 
+if __name__ == '__main__':
+    md = Multimodal_Datasets(dataset_path = '/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data', data='mosei_senti', split_type='train', if_align=True)
+    print(md.get_seq_len())
+    print(md.get_dim())

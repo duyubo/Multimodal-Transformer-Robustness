@@ -75,25 +75,23 @@ class MultiheadAttention(nn.Module):
         q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-
+        
         src_len = k.size(1)
 
         attn_weights = torch.bmm(q, k.transpose(1, 2))
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-
+        
         try:
             attn_weights += attn_mask.unsqueeze(0)
         except:
             print(attn_weights.shape)
             print(attn_mask.unsqueeze(0).shape)
             assert False
-                
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(attn_weights)
         attn_weights = F.dropout(attn_weights, p=self.attn_dropout, training=self.training)
-
         attn = torch.bmm(attn_weights, v)
         assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
-
+        
         attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, self.embed_dim)
         attn = self.out_proj(attn)
 
@@ -103,16 +101,16 @@ class MultiheadAttention(nn.Module):
         return self._in_proj(query).chunk(3, dim=-1)
 
     def in_proj_kv(self, key):
-        return self._in_proj(key, start=self.embed_dim).chunk(2, dim=-1)
+        return self._in_proj(key, start = self.embed_dim).chunk(2, dim=-1)
 
     def in_proj_q(self, query, **kwargs):
-        return self._in_proj(query, end=self.embed_dim, **kwargs)
+        return self._in_proj(query, end = self.embed_dim, **kwargs)
 
     def in_proj_k(self, key):
-        return self._in_proj(key, start=self.embed_dim, end=2 * self.embed_dim)
+        return self._in_proj(key, start = self.embed_dim, end=2 * self.embed_dim)
 
     def in_proj_v(self, value):
-        return self._in_proj(value, start=2 * self.embed_dim)
+        return self._in_proj(value, start = 2 * self.embed_dim)
 
     def _in_proj(self, input, start=0, end=None, **kwargs):
         weight = kwargs.get('weight', self.in_proj_weight)

@@ -33,7 +33,7 @@ class MULTModel(nn.Module):
         self.layers_hybrid_attn = layers_hybrid_attn
         self.layers_self_attn = layers_self_attn
         self.modality_num = len(self.orig_dimensions)
-        self.combined_dim = self.modality_num * self.modality_num * self.d
+        self.combined_dim = self.modality_num * (self.modality_num - 1) * self.d
         
         """ Temporal Convolutional Layers (None Shrinkable) """
         self.proj = proj
@@ -66,7 +66,8 @@ class MULTModel(nn.Module):
         for i in range(self.modality_num):
             h = []
             for j in range(self.modality_num):
-                h.append(self.trans[i][j](proj_x[i], proj_x[j], proj_x[j]))
+                if j != i:
+                  h.append(self.trans[i][j](proj_x[i], proj_x[j], proj_x[j]))
             h = torch.cat(h, dim = 2)
             h = self.trans_mems[i](h)
             if type(h) == tuple:

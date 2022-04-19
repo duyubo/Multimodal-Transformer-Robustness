@@ -29,8 +29,8 @@ def weighted_accuracy(test_preds_emo, test_truth_emo):
 
 
 def eval_mosei_senti(results, truths, exclude_zero=False):
-    test_preds = results.view(-1).cpu().detach().numpy()
-    test_truth = truths.view(-1).cpu().detach().numpy()
+    test_preds = results.view(-1).numpy()#.cpu().detach()
+    test_truth = truths.view(-1).numpy()
 
     non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0 or (not exclude_zero)])
 
@@ -47,45 +47,13 @@ def eval_mosei_senti(results, truths, exclude_zero=False):
     binary_truth = (test_truth[non_zeros] > 0)
     binary_preds = (test_preds[non_zeros] > 0)
 
-    print("MAE: ", mae)
-    print("Correlation Coefficient: ", corr)
-    print("mult_acc_7: ", mult_a7)
-    print("mult_acc_5: ", mult_a5)
-    print("F1 score: ", f_score)
-    print("Accuracy: ", accuracy_score(binary_truth, binary_preds))
+    print("\"MAE\": ", mae, ",")
+    print("\"Correlation Coefficient\": ", corr, ",")
+    print("\"mult_acc_7\": ", mult_a7, ",")
+    print("\"mult_acc_5\": ", mult_a5, ",")
+    print("\"F1 score\": ", f_score, ",")
+    print("\"Accuracy\": ", accuracy_score(binary_truth, binary_preds), ",")
 
-    print("-" * 50)
-
-
-def eval_mosi(results, truths, exclude_zero=False):
-    return eval_mosei_senti(results, truths, exclude_zero)
-
-
-def eval_iemocap(results, truths, single=-1):
-    emos = ["Neutral", "Happy", "Sad", "Angry"]
-    if single < 0:
-        test_preds = results.view(-1, 4, 2).cpu().detach().numpy()
-        test_truth = truths.view(-1, 4).cpu().detach().numpy()
-        
-        for emo_ind in range(4):
-            print(f"{emos[emo_ind]}: ")
-            test_preds_i = np.argmax(test_preds[:,emo_ind],axis=1)
-            test_truth_i = test_truth[:,emo_ind]
-            f1 = f1_score(test_truth_i, test_preds_i, average='weighted')
-            acc = accuracy_score(test_truth_i, test_preds_i)
-            print("  - F1 Score: ", f1)
-            print("  - Accuracy: ", acc)
-    else:
-        test_preds = results.view(-1, 2).cpu().detach().numpy()
-        test_truth = truths.view(-1).cpu().detach().numpy()
-        
-        print(f"{emos[single]}: ")
-        test_preds_i = np.argmax(test_preds,axis=1)
-        test_truth_i = test_truth
-        f1 = f1_score(test_truth_i, test_preds_i, average='weighted')
-        acc = accuracy_score(test_truth_i, test_preds_i)
-        print("  - F1 Score: ", f1)
-        print("  - Accuracy: ", acc)
 
 
 

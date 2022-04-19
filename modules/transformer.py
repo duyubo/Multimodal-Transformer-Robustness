@@ -7,44 +7,21 @@ import math
 
 
 class TransformerEncoder(nn.Module):
-    """
-    Transformer encoder consisting of *args.encoder_layers* layers. Each layer
-    is a :class:`TransformerEncoderLayer`.
-    Args:
-        embed_tokens (torch.nn.Embedding): input embedding
-        num_heads (int): number of heads
-        layers (int): number of layers
-        attn_dropout (float): dropout applied on the attention weights
-        relu_dropout (float): dropout applied on the first layer of the residual block
-        res_dropout (float): dropout applied on the residual block
-        attn_mask (bool): whether to apply mask on the attention weights
-    """
-
-    def __init__(self, embed_dim, num_heads, layers, attn_dropout=0.0, relu_dropout=0.0, res_dropout=0.0,
-                 embed_dropout=0.0, attn_mask=False):
+    
+    def __init__(self, embed_dim, layers, 
+                  SinusoidalPositionalEmbedding, layers_nn, ln, 
+                  attn_dropout=0.0, relu_dropout=0.0, res_dropout=0.0, embed_dropout=0.0, attn_mask=False):
         super().__init__()
-        self.dropout = embed_dropout      # Embedding dropout
+        self.dropout = embed_dropout    
         self.attn_dropout = attn_dropout
         self.embed_dim = embed_dim
         self.embed_scale = math.sqrt(embed_dim)
-        self.embed_positions = SinusoidalPositionalEmbedding(embed_dim)
+        self.embed_positions = None #SinusoidalPositionalEmbedding
         
         self.attn_mask = attn_mask
-
-        self.layers = nn.ModuleList([])
-        for layer in range(layers):
-            new_layer = TransformerEncoderLayer(embed_dim,
-                                                num_heads=num_heads,
-                                                attn_dropout=attn_dropout,
-                                                relu_dropout=relu_dropout,
-                                                res_dropout=res_dropout,
-                                                attn_mask=attn_mask)
-            self.layers.append(new_layer)
-
+        self.layers = nn.ModuleList(layers_nn)
         self.register_buffer('version', torch.Tensor([2]))
-        self.normalize = True
-        if self.normalize:
-            self.layer_norm = LayerNorm(embed_dim)
+        self.layer_norm = ln
 
     def forward(self, x_in, x_in_k = None, x_in_v = None):
         """
@@ -77,16 +54,14 @@ class TransformerEncoder(nn.Module):
         
         # encoder layers
         intermediates = [x]
+       
         for layer in self.layers:
             if x_in_k is not None and x_in_v is not None:
                 x = layer(x, x_k, x_v)
             else:
                 x = layer(x)
-            intermediates.append(x)
-
-        if self.normalize:
-            x = self.layer_norm(x)
-
+            intermediates.append(x)   
+        x = self.layer_norm(x)
         return x
 
     def max_positions(self):
@@ -109,26 +84,19 @@ class TransformerEncoderLayer(nn.Module):
         embed_dim: Embedding dimension
     """
 
-    def __init__(self, embed_dim, num_heads=4, attn_dropout=0.1, relu_dropout=0.1, res_dropout=0.1,
-                 attn_mask=False):
+    def __init__(self, self_attn, fc1, fc2, lns,  
+                attn_dropout=0.1, relu_dropout=0.1, res_dropout=0.1, attn_mask=False):
         super().__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        
-        self.self_attn = MultiheadAttention(
-            embed_dim=self.embed_dim,
-            num_heads=self.num_heads,
-            attn_dropout=attn_dropout
-        )
+        self.self_attn = self_attn
         self.attn_mask = attn_mask
 
         self.relu_dropout = relu_dropout
         self.res_dropout = res_dropout
         self.normalize_before = True
 
-        self.fc1 = Linear(self.embed_dim, 4*self.embed_dim)   # The "Add & Norm" part in the paper
-        self.fc2 = Linear(4*self.embed_dim, self.embed_dim)
-        self.layer_norms = nn.ModuleList([LayerNorm(self.embed_dim) for _ in range(2)])
+        self.fc1 = fc1
+        self.fc2 = fc2
+        self.layer_norms = nn.ModuleList(lns)
 
     def forward(self, x, x_k=None, x_v=None):
         """
@@ -145,18 +113,20 @@ class TransformerEncoderLayer(nn.Module):
         x = self.maybe_layer_norm(0, x, before=True)
         mask = buffered_future_mask(x, x_k) if self.attn_mask else None
         if x_k is None and x_v is None:
-            x, _ = self.self_attn(query=x, key=x, value=x, attn_mask=mask)
+            x = self.self_attn(query=x, key=x, value=x, attn_mask=mask)
         else:
             x_k = self.maybe_layer_norm(0, x_k, before=True)
             x_v = self.maybe_layer_norm(0, x_v, before=True) 
-            x, _ = self.self_attn(query=x, key=x_k, value=x_v, attn_mask=mask)
+            x = self.self_attn(query=x, key=x_k, value=x_v, attn_mask=mask)
+        
         x = F.dropout(x, p=self.res_dropout, training=self.training)
         x = residual + x
         x = self.maybe_layer_norm(0, x, after=True)
 
         residual = x
         x = self.maybe_layer_norm(1, x, before=True)
-        x = F.relu(self.fc1(x))
+        x = self.fc1(x)
+        x = F.relu(x)
         x = F.dropout(x, p=self.relu_dropout, training=self.training)
         x = self.fc2(x)
         x = F.dropout(x, p=self.res_dropout, training=self.training)
@@ -170,6 +140,7 @@ class TransformerEncoderLayer(nn.Module):
             return self.layer_norms[i](x)
         else:
             return x
+
 
 def fill_with_neg_inf(t):
     """FP16-compatible function that fills a tensor with -inf."""
@@ -186,20 +157,9 @@ def buffered_future_mask(tensor, tensor2=None):
     return future_mask[:dim1, :dim2]
 
 
-def Linear(in_features, out_features, bias=True):
-    m = nn.Linear(in_features, out_features, bias)
-    nn.init.xavier_uniform_(m.weight)
-    if bias:
-        nn.init.constant_(m.bias, 0.)
-    return m
-
-
 def LayerNorm(embedding_dim):
     m = nn.LayerNorm(embedding_dim)
     return m
 
 
-if __name__ == '__main__':
-    encoder = TransformerEncoder(300, 4, 2)
-    x = torch.tensor(torch.rand(20, 2, 300))
-    print(encoder(x).shape)
+

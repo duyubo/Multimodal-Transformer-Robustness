@@ -1,9 +1,10 @@
+import sys
+sys.path.append('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness')
 import torch
 import argparse
 from src.utils import *
 from torch.utils.data import DataLoader
 from src import train
-
 
 parser = argparse.ArgumentParser(description='MOSEI Sentiment Analysis')
 parser.add_argument('-f', default='', type=str)
@@ -23,7 +24,7 @@ parser.add_argument('--aligned', action='store_true',
                     help='consider aligned experiment or not (default: False)')
 parser.add_argument('--dataset', type=str, default='mosei_senti',
                     help='dataset to use (default: mosei_senti)')
-parser.add_argument('--data_path', type=str, default='data',
+parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data',
                     help='path for storing the dataset')
 
 # Dropouts
@@ -35,31 +36,31 @@ parser.add_argument('--attn_dropout_v', type=float, default=0.0,
                     help='attention dropout (for visual)')
 parser.add_argument('--relu_dropout', type=float, default=0.1,
                     help='relu dropout')
-parser.add_argument('--embed_dropout', type=float, default=0.25,
+parser.add_argument('--embed_dropout', type=float, default=0.3,
                     help='embedding dropout')
 parser.add_argument('--res_dropout', type=float, default=0.1,
                     help='residual block dropout')
-parser.add_argument('--out_dropout', type=float, default=0.0,
+parser.add_argument('--out_dropout', type=float, default=0.1,
                     help='output layer dropout')
 
 # Architecture
-parser.add_argument('--nlevels', type=int, default=5,
+parser.add_argument('--nlevels', type=int, default=4,
                     help='number of layers in the network (default: 5)')
-parser.add_argument('--num_heads', type=int, default=5,
+parser.add_argument('--num_heads', type=int, default=8,
                     help='number of heads for the transformer network (default: 5)')
 parser.add_argument('--attn_mask', action='store_false',
                     help='use attention mask for Transformer (default: true)')
 
 # Tuning
-parser.add_argument('--batch_size', type=int, default=24, metavar='N',
+parser.add_argument('--batch_size', type=int, default=16, metavar='N',
                     help='batch size (default: 24)')
-parser.add_argument('--clip', type=float, default=0.8,
+parser.add_argument('--clip', type=float, default=1.0,
                     help='gradient clip value (default: 0.8)')
-parser.add_argument('--lr', type=float, default=1e-3,
+parser.add_argument('--lr', type=float, default=1e-5,
                     help='initial learning rate (default: 1e-3)')
 parser.add_argument('--optim', type=str, default='Adam',
                     help='optimizer to use (default: Adam)')
-parser.add_argument('--num_epochs', type=int, default=40,
+parser.add_argument('--num_epochs', type=int, default=50,
                     help='number of epochs (default: 40)')
 parser.add_argument('--when', type=int, default=20,
                     help='when to decay learning rate (default: 20)')
@@ -89,22 +90,19 @@ elif valid_partial_mode != 1:
 use_cuda = False
 
 output_dim_dict = {
-    'mosi': 1,
     'mosei_senti': 1,
-    'iemocap': 8
 }
 
 criterion_dict = {
     'iemocap': 'CrossEntropyLoss'
 }
 
-torch.set_default_tensor_type('torch.FloatTensor')
+#torch.set_default_tensor_type('torch.FloatTensor')
 if torch.cuda.is_available():
     if args.no_cuda:
         print("WARNING: You have a CUDA device, so you should probably not run with --no_cuda")
     else:
-        torch.cuda.manual_seed(args.seed)
-        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+        torch.cuda.manual_seed(args.seed)   
         use_cuda = True
 
 ####################################################################
@@ -118,10 +116,13 @@ print("Start loading the data....")
 train_data = get_data(args, dataset, 'train')
 valid_data = get_data(args, dataset, 'valid')
 test_data = get_data(args, dataset, 'test')
+
    
-train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
-valid_loader = DataLoader(valid_data, batch_size=args.batch_size, shuffle=True)
-test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
+valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = True)
+test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = True)
+
+print(train_loader)
 
 print('Finish loading the data....')
 if not args.aligned:
