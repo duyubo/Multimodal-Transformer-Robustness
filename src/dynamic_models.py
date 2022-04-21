@@ -2,9 +2,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import sys
-"""!!!!!!!!!!!!!!!!!!!!!!! To be deleted !!!!!!!!!!!!!!!!!!!!!!!"""
-sys.path.append('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/')
-"""!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"""
 
 from modules.transformer import TransformerEncoder
 from modules.dynamic_transformer import DynamicTransformerEncoder

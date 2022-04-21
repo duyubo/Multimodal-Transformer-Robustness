@@ -25,9 +25,9 @@ from src.dynamic_models2 import DynamicMULTModel
 # Construct the model and the CTC module (which may not be needed)
 #
 ####################################################################
-dimension = 40
-num_heads = 1
-head_dim = 20
+dimension = 30
+num_heads = 5
+head_dim = 6
 layers_hybrid_attn = 4
 layers_self_attn = 3 
 modality_pool = [[0], [1], [2], [0, 1], [0, 2], [1, 2], [0, 1, 2]]
@@ -35,11 +35,10 @@ modality_pool = [[0], [1], [2], [0, 1], [0, 2], [1, 2], [0, 1, 2]]
 def initiate(hyp_params, train_loader, valid_loader, test_loader):
     
     model = DynamicMULTModel(origin_dimensions = [300, 74, 35], dimension = dimension, 
-        num_heads = num_heads, head_dim = head_dim, layers_hybrid_attn = 4, layers_self_attn = 3, attn_dropout = [0.1, 0, 0, 0], 
-        relu_dropout = 0, res_dropout = 0, out_dropout = 0, embed_dropout = 0, attn_mask = True, output_dim = 1, 
+        num_heads = num_heads, head_dim = head_dim, layers_hybrid_attn = layers_hybrid_attn, 
+        layers_self_attn = layers_self_attn, attn_dropout = [0.1, 0, 0, 0], 
+        relu_dropout = 0.1, res_dropout = 0.1, out_dropout = 0.1, embed_dropout = 0.3, attn_mask = True, output_dim = 1, 
         modality_set = ['t', 'a', 'v']) 
-    """Load from exist model"""
-    model = torch.load('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/MULT-single-test.pt')
 
     if hyp_params.use_cuda:
         model = model.cuda()
@@ -86,8 +85,9 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             raw_loss = 0   
             preds = model([text, audio, vision])
             raw_loss += criterion(preds, eval_attr)
+
             """ set up active part"""
-            active_modality = modality_pool[torch.randint(low=0, high = len(modality_pool), size = (1, ))[0].item()]
+            '''active_modality = modality_pool[torch.randint(low=0, high = len(modality_pool), size = (1, ))[0].item()]
             active_cross, active_cross_output = model.gen_active_cross(active_modality)
             model.set_active(active_self_attn_layer_num = layers_self_attn, 
                           active_hybrid_attn_layer_num = layers_hybrid_attn, 
@@ -96,7 +96,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                           active_head_dim = head_dim, 
                           active_modality = active_modality,
                           active_cross = active_cross, 
-                          active_cross_output = active_cross_output)
+                          active_cross_output = active_cross_output)'''
 
             combined_loss = raw_loss
             combined_loss.backward()
@@ -152,12 +152,12 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         return avg_loss, results, truths
 
     best_valid = 1e8
-    for epoch in range(0):# 1, hyp_params.num_epochs+1
+    for epoch in range(1, hyp_params.num_epochs+1):# 1, hyp_params.num_epochs+1
         start = time.time()
         train(model, optimizer, criterion)
 
         """ set back to the full modality during eval and test"""
-        model.set_active(active_self_attn_layer_num = layers_self_attn, 
+        """ model.set_active(active_self_attn_layer_num = layers_self_attn, 
                             active_hybrid_attn_layer_num = layers_hybrid_attn, 
                             active_dimension = dimension, 
                             active_head_num = num_heads, 
@@ -165,7 +165,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                             active_modality = [0, 1, 2],
                             active_cross = [model.m.gen_modality_str(i) for i in model.modality_list], 
                             active_cross_output = [model.m.gen_modality_str(i) for i in model.modality_list]
-                            )
+                            )"""
         """ set back to the full modality during eval and test"""
         val_loss, _, _ = evaluate(model, criterion, test=False)
         test_loss, _, _ = evaluate(model, criterion, test=True)
@@ -179,11 +179,13 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         print("-"*50)
         
         if val_loss < best_valid:
-            print("Saved model at /content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness")
-            torch.save(model, '/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/MULT-single-test.pt')
+            print("Saved model at .")
+            torch.save(model, hyp_params.model_path)
             best_valid = val_loss
+        if optimizer.param_groups[0]['lr'] < 1e-6:
+          break
 
-    model = torch.load('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/MULT-single-test.pt')
+    model = torch.load(hyp_params.model_path)
 
     """Test performance under modality drop"""
     modalities = ['t', 'a', 'v']

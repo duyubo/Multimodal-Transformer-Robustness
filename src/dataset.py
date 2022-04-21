@@ -5,20 +5,16 @@ import os
 from scipy import signal
 import torch
 
-
-    
 ############################################################################################
 # This file provides basic processing script for the multimodal datasets we use. For other
 # datasets, small modifications may be needed (depending on the type of the data, etc.)
 ############################################################################################
 
-
 class Multimodal_Datasets(Dataset):
     def __init__(self, dataset_path, data='mosei_senti', split_type='train', if_align=False):
         super(Multimodal_Datasets, self).__init__()
-        dataset_path = os.path.join(dataset_path, data+'_data.pkl' if if_align else data+'_data_noalign.pkl' )
+        dataset_path = os.path.join(dataset_path, 'mosei_senti_data.pkl')
         dataset = pickle.load(open(dataset_path, 'rb'))
-
         # These are torch tensors
         self.vision = torch.tensor(dataset[split_type]['vision']).float()
         self.text = torch.tensor(dataset[split_type]['text']).float()
@@ -26,9 +22,7 @@ class Multimodal_Datasets(Dataset):
         self.audio[self.audio == -np.inf] = 0
         self.audio = torch.tensor(self.audio).float()
         self.labels = torch.tensor(dataset[split_type]['labels']).float()
-
         self.data = data
-        
         self.n_modalities = 3 # vision/ text/ audio
     def get_n_modalities(self):
         return self.n_modalities
@@ -46,7 +40,3 @@ class Multimodal_Datasets(Dataset):
         Y = self.labels[index]
         return X, Y
 
-if __name__ == '__main__':
-    md = Multimodal_Datasets(dataset_path = '/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data', data='mosei_senti', split_type='train', if_align=True)
-    print(md.get_seq_len())
-    print(md.get_dim())

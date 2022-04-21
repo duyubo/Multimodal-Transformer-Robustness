@@ -1,7 +1,4 @@
 import sys
-"""!!!!!!!!!!!!!!!!!!!!!!! To be deleted !!!!!!!!!!!!!!!!!!!!!!!"""
-sys.path.append('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/')
-"""!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"""
 
 import torch
 from torch import nn

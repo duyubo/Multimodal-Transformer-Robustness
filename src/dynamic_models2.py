@@ -4,9 +4,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import sys
-"""!!!!!!!!!!!!!!!!!!!!!!! To be deleted !!!!!!!!!!!!!!!!!!!!!!!"""
-sys.path.append('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/')
-"""!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"""
 
 from modules.transformer import TransformerEncoder
 from modules.dynamic_transformer import DynamicTransformerEncoder
@@ -305,6 +302,12 @@ class DynamicMULTModel(MULTModel):
                                       active_dimension = active_dimension, 
                                       active_head_num = active_head_num, 
                                       active_head_dim = active_head_dim)
+
+    def set_active_modalities(self, active_modality:list, 
+                  active_cross:list, active_cross_output:list):
+        self.active_modality = active_modality
+        self.active_cross_output = active_cross_output
+        self.active_cross = active_cross
 
     def sort(self, sort_head = False, sort_head_dim = False, sort_dim_transformer_layer = False):
         if sort_head:  

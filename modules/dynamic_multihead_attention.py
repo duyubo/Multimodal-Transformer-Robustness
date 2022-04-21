@@ -5,10 +5,6 @@ import torch.nn.functional as F
 import sys
 import warnings
 
-"""!!!!!!!!!!!!!!!!!!!!!!! To be deleted !!!!!!!!!!!!!!!!!!!!!!!"""
-sys.path.append('/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-master/')
-"""!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"""
-
 from modules.multihead_attention import *
 import functools
 
