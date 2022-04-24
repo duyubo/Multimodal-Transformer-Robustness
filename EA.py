@@ -86,11 +86,7 @@ class EvolutionSearch:
         
         print("Generate random population...")
         child_pool.append([[['ta', 'tv'], ['at', 'av'], ['vt', 'va']],[['ta', 'tv'], ['at', 'av'], ['vt', 'va']]])
-        child_pool.append([[['ta'], [], ['va', 'vat']], [['t', 'ta'], ['a'], ['va']]])
-        child_pool.append([[['tv'], ['at', 'atv'], ['va', 'vat']], [['t', 'tv'], ['a', 'atv'], ['v', 'va', 'vat']]])
-        child_pool.append([[['ta'], ['av', 'avt'], []], [['ta'], ['a', 'avt'], ['v']]])
-        child_pool.append([[[], ['at'], ['vt', 'va', 'vta']], [['t'], ['a', 'at'], ['v', 'va', 'vta']]])
-        for _ in range(self.population_size - 5):
+        for _ in range(self.population_size - 1):
             active_cross, active_cross_output = self.model.gen_active_cross(active_modality = self.active_modality)
             sample = [active_cross, active_cross_output]
             child_pool.append(sample)
@@ -175,7 +171,7 @@ class EvolutionSearch:
                 
         results = torch.cat(results)
         truths = torch.cat(truths)
-        test_preds = results.view(-1).numpy()#.cpu().detach()
+        test_preds = results.view(-1).numpy()
         test_truth = truths.view(-1).numpy()
 
         non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0])
@@ -258,8 +254,8 @@ print("Start loading the data....")
 valid_data = get_data(args, dataset, 'valid')
 test_data = get_data(args, dataset, 'test')
 
-valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = True)
-test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = True)
+valid_loader = DataLoader(valid_data, batch_size = args.batch_size, shuffle = False)
+test_loader = DataLoader(test_data, batch_size = args.batch_size, shuffle = False)
 print('Finish loading the data....')
 
 ####################################################################

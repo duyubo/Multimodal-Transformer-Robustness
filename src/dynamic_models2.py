@@ -35,7 +35,7 @@ class DynamicMULTModel(MULTModel):
     conv    A                          V                          L
     """
     def __init__(self, origin_dimensions:list, dimension, 
-        num_heads, head_dim, layers_hybrid_attn, layers_self_attn, attn_dropout:list, 
+        num_heads, head_dim, layers_single_attn, layers_hybrid_attn, layers_self_attn, attn_dropout:list, 
         relu_dropout, res_dropout, out_dropout, embed_dropout, attn_mask, output_dim, modality_set):
         
         nn.Module.__init__(self)
@@ -59,6 +59,7 @@ class DynamicMULTModel(MULTModel):
         Output dimension of the temporal conv layers should always be the same """
         self.num_heads = num_heads
         self.head_dim = head_dim
+        self.layers_single_attn = layers_single_attn
         self.layers_hybrid_attn = layers_hybrid_attn
         self.layers_self_attn = layers_self_attn
         self.modality_num = len(self.orig_dimensions)
@@ -69,7 +70,7 @@ class DynamicMULTModel(MULTModel):
         self.proj = nn.ModuleList(self.proj)
 
         """ Self Attentions (Shrinkable) self0 """
-        self.trans_mems0 = nn.ModuleDict({'mems0' + self.modality_list[i]: self.get_network(i, 0, mem=False, layers = self.layers_hybrid_attn) for i in range(self.modality_num)})
+        self.trans_mems0 = nn.ModuleDict({'mems0' + self.modality_list[i]: self.get_network(i, 0, mem=False, layers = self.layers_single_attn) for i in range(self.modality_num)})
         print('mems0: ', self.trans_mems0.keys())
 
         """ cross Attentions (Shrinkable) cross """
@@ -94,7 +95,7 @@ class DynamicMULTModel(MULTModel):
         self.out_layer = DynamicLinear(self.combined_dim, self.output_dim, bias = True)
 
         #default active_modality is full
-        self.active_modality = list(range(self.modality_num))
+        self.active_modality = [i for i in range(self.modality_num)]
         # default active cross attention modules are the same as MULT-Transformer
         # must be in the same order as modality_combines
         self.active_cross = [self.m.gen_modality_str(i) for i in self.modality_list]
@@ -136,6 +137,7 @@ class DynamicMULTModel(MULTModel):
         assert len(x) == self.modality_num # missing modality will be repalced by ones or zeros, can not be deleted
         x = [v.permute(0, 2, 1) for v in x]  # n_modalities * [batch_size, n_features, seq_len]
         proj_x = [self.proj[i](x[i]) for i in self.active_modality]
+
         proj_x = torch.stack(proj_x)
         proj_x = proj_x.permute(0, 3, 1, 2)
 
@@ -149,7 +151,7 @@ class DynamicMULTModel(MULTModel):
         for i in self.active_modality:
             for modality_cross in self.active_cross[i]:
                 h_[modality_cross] = self.trans['cross' + modality_cross](h_[modality_cross[-1]], h_[modality_cross[:-1]], h_[modality_cross[:-1]])
-          
+            
             h = torch.cat([h_[modality_cross] for modality_cross in self.active_cross_output[i]], dim = 2)
             active_mask = []
             for m_c in self.active_cross_output[i]:
@@ -182,6 +184,7 @@ class DynamicMULTModel(MULTModel):
         return out
 
     def get_active_subnet(self, active_self_attn_layer_num, 
+                          active_single_attn_layer_num:list,
                           active_hybrid_attn_layer_num, 
                           active_dimension, 
                           active_head_num, 
@@ -201,7 +204,7 @@ class DynamicMULTModel(MULTModel):
 
         """copyy first self attention modules"""
         trans_mems0 = {'mems0'+self.modality_list[i]: self.trans_mems0['mems0'+self.modality_list[i]].get_active_subnet(
-                                    active_layer_num = active_hybrid_attn_layer_num, 
+                                    active_layer_num = active_single_attn_layer_num[i], 
                                     active_dimension = active_dimension, 
                                     active_head_num = active_head_num, 
                                     active_head_dim = active_head_dim, 
@@ -277,20 +280,23 @@ class DynamicMULTModel(MULTModel):
         model = model.to(self.parameters().__next__().device)
         return model
 
-    def set_active(self, active_self_attn_layer_num, active_hybrid_attn_layer_num, 
+    def set_active(self, active_self_attn_layer_num,  
+                  active_single_attn_layer_num:list, active_hybrid_attn_layer_num, 
                   active_dimension, active_head_num, active_head_dim, active_modality:list, 
                   active_cross:list, active_cross_output:list):
         #print(active_self_attn_layer_num, active_hybrid_attn_layer_num, active_dimension, active_head_num, active_head_dim, active_modality)
-        print('active modality in set active', active_modality, 'active cross', active_cross, 'active cross output', active_cross_output)
+        #print('active modality in set active', active_modality, 'active cross', active_cross, 'active cross output', active_cross_output)
         self.active_modality = active_modality
         self.active_cross_output = active_cross_output
         self.active_cross = active_cross
         
+        i = 0
         for k in self.trans_mems0.keys():
-            self.trans_mems0[k].set_active(active_layer_num = active_hybrid_attn_layer_num, 
+            self.trans_mems0[k].set_active(active_layer_num = active_single_attn_layer_num[i], 
                                           active_dimension = active_dimension, 
                                           active_head_num = active_head_num, 
                                           active_head_dim = active_head_dim)
+            i += 1
         for k in self.trans.keys():                                  
             self.trans[k].set_active(active_layer_num = active_hybrid_attn_layer_num, 
                                           active_dimension = active_dimension, 
