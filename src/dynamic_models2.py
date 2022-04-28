@@ -10,6 +10,14 @@ from modules.dynamic_transformer import DynamicTransformerEncoder
 from src.models2 import  *
 from modules.dynamic_layers import DynamicLinear, DynamicLayerNorm
 
+class Transpose(nn.Module):
+    """Custom transpose module for easier Sequential usage."""
+    def __init__(self, dim0, dim1):
+        super().__init__()
+        self.dim0 = dim0
+        self.dim1 = dim1
+    def forward(self, x):
+        return torch.transpose(x, self.dim0, self.dim1)
 
 class DynamicMULTModel(MULTModel):
     """ 
@@ -35,9 +43,11 @@ class DynamicMULTModel(MULTModel):
     conv    A                          V                          L
     """
     def __init__(self, origin_dimensions:list, dimension, 
-        num_heads, head_dim, layers_single_attn, layers_hybrid_attn, layers_self_attn, attn_dropout:list, 
-        relu_dropout, res_dropout, out_dropout, embed_dropout, attn_mask, output_dim, modality_set):
-        
+        num_heads, head_dim, layers_single_attn, layers_hybrid_attn, 
+        layers_self_attn, attn_dropout:list, 
+        relu_dropout, res_dropout, out_dropout, embed_dropout, 
+        attn_mask, output_dim, modality_set, all_steps):
+
         nn.Module.__init__(self)
         """ Fixed Hyperparameters """
         self.orig_dimensions = origin_dimensions
@@ -51,6 +61,7 @@ class DynamicMULTModel(MULTModel):
         self.attn_mask = attn_mask
         self.output_dim = output_dim # should be same as the label dimension
         self.modality_list = modality_set
+        self.all_steps = all_steps
         self.m = ModalityStr(modality_set)
 
         """ Shrinkable Hyperparameters
@@ -66,7 +77,8 @@ class DynamicMULTModel(MULTModel):
         self.combined_dim = AmnSum(self.modality_num) * self.d
         
         """ Temporal Convolutional Layers (None Shrinkable) """
-        self.proj = [nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=3, padding=0, bias=False) for i in range(self.modality_num)]
+        self.proj = [nn.Sequential(nn.Linear(self.orig_dimensions[i], self.d), Transpose(1, 2)) for i in range(self.modality_num)]
+        #self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=3, padding='same', bias=False)) for i in range(self.modality_num)]
         self.proj = nn.ModuleList(self.proj)
 
         """ Self Attentions (Shrinkable) self0 """
@@ -110,7 +122,7 @@ class DynamicMULTModel(MULTModel):
             relu_dropout = self.relu_dropout, res_dropout = self.res_dropout, out_dropout = self.out_dropout, 
             embed_dropout = self.embed_dropout, attn_mask = self.attn_mask, output_dim = self.output_dim,
             cross = self.active_cross.copy(), cross_output = self.active_cross_output.copy(), 
-            modality_list = self.modality_list.copy())
+            modality_list = self.modality_list.copy(), all_steps = self.all_steps)
 
     def get_network(self, mod1, mod2, mem, layers=-1):
         if not mem:
@@ -135,7 +147,7 @@ class DynamicMULTModel(MULTModel):
     
     def forward(self, x): 
         assert len(x) == self.modality_num # missing modality will be repalced by ones or zeros, can not be deleted
-        x = [v.permute(0, 2, 1) for v in x]  # n_modalities * [batch_size, n_features, seq_len]
+        #x = [v.permute(0, 2, 1) for v in x]  # n_modalities * [batch_size, n_features, seq_len]
         proj_x = [self.proj[i](x[i]) for i in self.active_modality]
 
         proj_x = torch.stack(proj_x)
@@ -147,6 +159,7 @@ class DynamicMULTModel(MULTModel):
 
         """ multi level cross attention """
         last_hs = []
+        hs = []
         active_mask_output = []
         for i in self.active_modality:
             for modality_cross in self.active_cross[i]:
@@ -164,11 +177,18 @@ class DynamicMULTModel(MULTModel):
             active_mask = torch.tensor(active_mask).type(torch.IntTensor).to(next(self.parameters()).device)
             """self attention in the highest level"""
             h = self.trans_mems['mems' + self.modality_list[i]](h, active_mask = active_mask)
-            last_hs.append(h[-1])
-        
-        out = torch.cat(last_hs, dim=1)
-        active_indexes = torch.Tensor(active_mask_output).type(torch.IntTensor).to(next(self.parameters()).device)
+            if self.all_steps:
+                hs.append(h)
+            else:
+                last_hs.append(h[-1])
+            
+        if self.all_steps:
+            out = torch.cat(hs, dim=2)  # [seq_len, batch_size, out_features]
+            out = out.permute(1, 0, 2)  # [batch_size, seq_len, out_features]
+        else:
+            out = torch.cat(last_hs, dim=1)
 
+        active_indexes = torch.Tensor(active_mask_output).type(torch.IntTensor).to(next(self.parameters()).device)
         """ Concatenation layer"""   
         out_proj = self.proj2(
             F.dropout(
@@ -275,7 +295,8 @@ class DynamicMULTModel(MULTModel):
             layers_self_attn = active_self_attn_layer_num, attn_dropout = attn_drop, 
             relu_dropout = self.relu_dropout, res_dropout = self.res_dropout, out_dropout = self.out_dropout, 
             embed_dropout = self.embed_dropout, attn_mask = self.attn_mask, output_dim = self.output_dim,
-            cross = cross, cross_output = cross_output, modality_list = [self.modality_list[i] for i in active_modality])
+            cross = cross, cross_output = cross_output, modality_list = [self.modality_list[i] for i in active_modality],
+            all_steps = self.all_steps)
         
         model = model.to(self.parameters().__next__().device)
         return model

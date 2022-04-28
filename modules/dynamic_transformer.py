@@ -55,26 +55,25 @@ class DynamicTransformerEncoder(TransformerEncoder):
 
     def forward(self, x_in, x_in_k = None, x_in_v = None, active_mask = [None]):
         # embed tokens and positions
-        '''if not active_mask[0] is None:
+        if not active_mask[0] is None:
             assert (x_in_k is None) and (x_in_v is None)
             self.embed_positions.embedding_dim = len(active_mask)
         else:
-            self.embed_positions.embedding_dim = self.embed_dim'''
+            self.embed_positions.embedding_dim = self.embed_dim
             
         x = self.embed_scale * x_in
-        '''if self.embed_positions is not None:
+        if self.embed_positions is not None:
             s = self.embed_positions(x.transpose(0, 1)[:, :, 0]).transpose(0, 1)   # Add positional embedding
-            x += s'''
+            x += s
         x = F.dropout(x, p=self.dropout, training=self.training)
 
         if x_in_k is not None and x_in_v is not None:
             # embed tokens and positions    
             x_k = self.embed_scale * x_in_k
             x_v = self.embed_scale * x_in_v
-            '''if self.embed_positions is not None:
+            if self.embed_positions is not None:
                 x_k += self.embed_positions(x_in_k.transpose(0, 1)[:, :, 0]).transpose(0, 1)   # Add positional embedding
                 x_v += self.embed_positions(x_in_v.transpose(0, 1)[:, :, 0]).transpose(0, 1)   # Add positional embedding
-            '''
             x_k = F.dropout(x_k, p=self.dropout, training=self.training)
             x_v = F.dropout(x_v, p=self.dropout, training=self.training)
         

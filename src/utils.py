@@ -1,7 +1,7 @@
 from re import S
 import torch
 import os
-from src.dataset import MOSEI_Datasets, avMNIST_Datasets
+from src.dataset import MOSEI_Datasets, avMNIST_Datasets, GentlePush_Datasets, Enrico_Datasets
 
 def get_data(args, split='train'):
     dataset = str.lower(args.dataset.strip())
@@ -18,5 +18,12 @@ def get_data(args, split='train'):
     elif dataset == 'avmnist':
         data = avMNIST_Datasets(args.data_path, split)
         return data
-      
-
+    elif dataset == 'mojupush':
+        data = GentlePush_Datasets(args.data_path, split)
+        return data
+    elif dataset == 'enrico':
+        data = Enrico_Datasets(args.data_path, split)
+        return data
+    else:
+        print(dataset + " does not exist!")
+        raise NotImplementedError

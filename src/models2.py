@@ -82,7 +82,7 @@ class MULTModel(nn.Module):
         origin_dimensions:list, dimension, 
         num_heads, head_dim, layers_hybrid_attn, layers_self_attn, attn_dropout:list, 
         relu_dropout, res_dropout, out_dropout, embed_dropout, attn_mask, output_dim,
-        cross, cross_output, modality_list):
+        cross, cross_output, modality_list, all_steps):
         super(MULTModel, self).__init__()
 
         """ Fixed Hyperparameters """
@@ -96,7 +96,8 @@ class MULTModel(nn.Module):
         self.embed_dropout = embed_dropout
         self.attn_mask = attn_mask
         self.output_dim = output_dim # should be same as the label dimension
-
+        self.all_steps = all_steps
+        
         """ Shrinkable Hyperparameters
         in the parent graph we set up each modality with the same number of layers, hidden dimensions, head numbers and etc. 
         But the number of layers, head numbers, head dim for each modality are not required to be same during sampling!
@@ -143,16 +144,23 @@ class MULTModel(nn.Module):
         _h = proj_x1
         
         last_hs = []
+        hs = []
         for i in range(self.modality_num):
             for m_c in self.cross[i]:
                 _h[m_c] = self.trans['cross' + m_c]( _h[m_c[-1]], _h[m_c[:-1]], _h[m_c[:-1]])
             h = torch.cat([_h[m] for m in self.cross_output[i]], dim = 2)
             h = self.trans_mems['mems' + self.modality_list[i]](h)
-            if type(h) == tuple:
-                h = h[0]
-            last_hs.append(h[-1])
+            
+            if self.all_steps:
+                hs.append(h)
+            else:
+                last_hs.append(h[-1])
         
-        out = torch.cat(last_hs, dim=1)
+        if self.all_steps:
+            out = torch.cat(hs, dim=2)  # [seq_len, batch_size, out_features]
+            out = out.permute(1, 0, 2)  # [batch_size, seq_len, out_features]
+        else:
+            out = torch.cat(last_hs, dim=1)
         
         out_proj = self.proj2(
             F.dropout(F.relu(self.proj1(out)), p = self.out_dropout, training = self.training)

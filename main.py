@@ -5,6 +5,7 @@ import argparse
 from src.utils import *
 from torch.utils.data import DataLoader
 from src import train
+from src.data_utils import compute_weights
 
 parser = argparse.ArgumentParser(description='MULT Multimodality Learning')
 parser.add_argument('-f', default='', type=str)
@@ -46,7 +47,7 @@ parser.add_argument('--modality_pool', type=int, nargs='+', action='append', def
                     help='possible modality combinations [[0], [1], [2], [0, 1], [0, 2], [1, 2], [0, 1, 2]]')
 parser.add_argument('--modality_set', type=str, nargs="*", default=['t', 'a', 'v'],
                     help=' a list of modality names [\'t\', \'a\', \'v\']')
-                
+parser.add_argument('--all_steps', action = 'store_true', help = 'keep all intermidiate results')     
 
 # Tuning
 parser.add_argument('--batch_size', type=int, default=16, metavar='N',
@@ -65,7 +66,7 @@ parser.add_argument('--batch_chunk', type=int, default=1,
                     help='number of chunks per batch (default: 1)')
 
 # Logistics
-parser.add_argument('--log_interval', type=int, default=180,
+parser.add_argument('--log_interval', type=int, default=360,
                     help='frequency of result logging (default: 30)')
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
@@ -75,8 +76,8 @@ parser.add_argument('--no_cuda', action='store_true',
 # Stages
 parser.add_argument('--pretrain', type=str, default = None,
                     help='Whether load pretrain model')
-parser.add_argument('--random_sample', action='store_true', 
-                    help='Whether random sample or not?')
+parser.add_argument('--experiment_type', type=str, default = 'random_sample', 
+                    help='Which experiment?')
 
 args = parser.parse_args()
 
@@ -84,14 +85,16 @@ torch.manual_seed(args.seed)
 output_dim_dict = {
     'mosei_senti': 1,
     'avmnist': 10,
-}
-output_layer = {
-    
+    'mojupush': 2,
+    'enrico': 20,
 }
 
 criterion_dict = {
     'mosei_senti':  'L1Loss',
     'avmnist':   'CrossEntropyLoss', 
+    'mojupush':  'MSELoss',
+    'enrico': 'CrossEntropyLoss',
+    'kinects': None, 
 }
 
 if torch.cuda.is_available():
@@ -113,10 +116,16 @@ train_data = get_data(args, 'train')
 valid_data = get_data(args, 'valid')
 test_data = get_data(args, 'test')
 
-train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
-valid_loader = DataLoader(valid_data, batch_size = 512 * 4, shuffle = False)
-test_loader = DataLoader(test_data, batch_size = 512 * 4, shuffle = False)
+if args.dataset == 'enrico':
+    weights, sampler= compute_weights(train_data) 
+    train_loader = DataLoader(train_data, sampler = sampler, batch_size = args.batch_size, shuffle = False)
+else:
+    train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
+valid_loader = DataLoader(valid_data, batch_size = 128 * 4, shuffle = False)
+test_loader = DataLoader(test_data, batch_size = 128 * 4, shuffle = False)
 
+if args.dataset == 'mojupush':
+    args.all_steps = True
 
 print('Finish loading the data....')
 
@@ -132,12 +141,17 @@ hyp_params.l = train_data.get_seq_len()
 hyp_params.n_train, hyp_params.n_valid, hyp_params.n_test = len(train_data), len(valid_data), len(test_data)
 hyp_params.output_dim = output_dim_dict[hyp_params.dataset]
 hyp_params.criterion = criterion_dict[hyp_params.dataset]
+if args.dataset == 'enrico':
+      hyp_params.criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(weights))
+
 print('orig_d:', hyp_params.orig_d)
 print('attn_dropout:', hyp_params.attn_dropout)
 print('modality_set:', hyp_params.modality_set)
 print('modality_pool:', hyp_params.modality_pool)
 print('criterion: ', hyp_params.criterion)
-
+print('batch size: ', hyp_params.batch_size)
+print('num of train: ', hyp_params.n_train)
+print('sequence length: ', hyp_params.l)
 
 if __name__ == '__main__':
     test_loss = train.initiate(hyp_params, train_loader, valid_loader, test_loader)

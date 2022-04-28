@@ -16,7 +16,7 @@ class TransformerEncoder(nn.Module):
         self.attn_dropout = attn_dropout
         self.embed_dim = embed_dim
         self.embed_scale = math.sqrt(embed_dim)
-        self.embed_positions = None #SinusoidalPositionalEmbedding
+        self.embed_positions = SinusoidalPositionalEmbedding
         
         self.attn_mask = attn_mask
         self.layers = nn.ModuleList(layers_nn)
