@@ -21,7 +21,7 @@ class Transpose(nn.Module):
 
 class DynamicMULTModel(MULTModel):
     """ 
-                        structure of the modified MULT model
+                        structure of the attantion modules
 
                                       output
                                         ^
@@ -77,8 +77,8 @@ class DynamicMULTModel(MULTModel):
         self.combined_dim = AmnSum(self.modality_num) * self.d
         
         """ Temporal Convolutional Layers (None Shrinkable) """
-        self.proj = [nn.Sequential(nn.Linear(self.orig_dimensions[i], self.d), Transpose(1, 2)) for i in range(self.modality_num)]
-        #self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=3, padding='same', bias=False)) for i in range(self.modality_num)]
+        #self.proj = [nn.Sequential(nn.Linear(self.orig_dimensions[i], self.d), Transpose(1, 2)) for i in range(self.modality_num)]
+        self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=1, padding='same', bias=False)) for i in range(self.modality_num)]
         self.proj = nn.ModuleList(self.proj)
 
         """ Self Attentions (Shrinkable) self0 """
@@ -147,7 +147,6 @@ class DynamicMULTModel(MULTModel):
     
     def forward(self, x): 
         assert len(x) == self.modality_num # missing modality will be repalced by ones or zeros, can not be deleted
-        #x = [v.permute(0, 2, 1) for v in x]  # n_modalities * [batch_size, n_features, seq_len]
         proj_x = [self.proj[i](x[i]) for i in self.active_modality]
 
         proj_x = torch.stack(proj_x)
@@ -216,10 +215,10 @@ class DynamicMULTModel(MULTModel):
         #print('active modality in get_active_subnet', active_modality, active_cross, active_cross_output)
         """copy projecction (conv) layers"""
         proj = []
-        for i in active_modality:
-            p = nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=3, padding=0, bias=False)
-            p.weight.data.copy_(self.proj[i].weight.data)
-            proj.append(p)
+        for i in active_modality:  
+            p = nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=1, padding='same', bias=False)
+            p.weight.data.copy_(self.proj[i][1].weight.data)
+            proj.append(nn.Sequential(Transpose(1, 2), p))
         proj = nn.ModuleList(proj)
 
         """copyy first self attention modules"""

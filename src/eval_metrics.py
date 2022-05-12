@@ -7,15 +7,24 @@ from sklearn.metrics import accuracy_score, f1_score
 
 
 def multiclass_acc(preds, truths):
-    """
-    Compute the multiclass accuracy w.r.t. groundtruth
-
-    :param preds: Float array representing the predictions, dimension (N,)
-    :param truths: Float/int array representing the groundtruth classes, dimension (N,)
-    :return: Classification accuracy
-    """
     return np.sum(np.round(preds) == np.round(truths)) / float(len(truths))
 
+def binary_acc(results, truths, exclude_zero=False):
+    test_preds = results.view(-1).numpy()#.cpu().detach()
+    test_truth = truths.view(-1).numpy()
+    non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0 or (not exclude_zero)])
+    binary_truth = (test_truth[non_zeros] > 0)
+    binary_preds = (test_preds[non_zeros] > 0)
+
+    return accuracy_score(binary_truth, binary_preds)
+
+def mosei_multiclass_acc(test_preds, test_truth):
+    test_preds = test_preds.view(-1).numpy()#.cpu().detach()
+    test_truth = test_truth.view(-1).numpy()
+    test_preds_a7 = np.clip(test_preds, a_min=-3., a_max=3.)
+    test_truth_a7 = np.clip(test_truth, a_min=-3., a_max=3.)
+    acc = multiclass_acc(test_preds_a7, test_truth_a7)
+    return acc
 
 def weighted_accuracy(test_preds_emo, test_truth_emo):
     true_label = (test_truth_emo > 0)
@@ -26,7 +35,6 @@ def weighted_accuracy(test_preds_emo, test_truth_emo):
     n = float(np.sum(true_label==0))
 
     return (tp * (n/p) +tn) / (2*n)
-
 
 def eval_mosei_senti(results, truths, exclude_zero=False):
     test_preds = results.view(-1).numpy()#.cpu().detach()
@@ -53,6 +61,8 @@ def eval_mosei_senti(results, truths, exclude_zero=False):
     print("\"mult_acc_5\": ", mult_a5, ",")
     print("\"F1 score\": ", f_score, ",")
     print("\"Accuracy\": ", accuracy_score(binary_truth, binary_preds), ",")
+    
+    
 
 
 

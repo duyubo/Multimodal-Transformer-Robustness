@@ -116,11 +116,12 @@ train_data = get_data(args, 'train')
 valid_data = get_data(args, 'valid')
 test_data = get_data(args, 'test')
 
-if args.dataset == 'enrico':
+"""if args.dataset == 'enrico':
     weights, sampler= compute_weights(train_data) 
     train_loader = DataLoader(train_data, sampler = sampler, batch_size = args.batch_size, shuffle = False)
 else:
-    train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
+"""
+train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
 valid_loader = DataLoader(valid_data, batch_size = 128 * 4, shuffle = False)
 test_loader = DataLoader(test_data, batch_size = 128 * 4, shuffle = False)
 
@@ -141,9 +142,9 @@ hyp_params.l = train_data.get_seq_len()
 hyp_params.n_train, hyp_params.n_valid, hyp_params.n_test = len(train_data), len(valid_data), len(test_data)
 hyp_params.output_dim = output_dim_dict[hyp_params.dataset]
 hyp_params.criterion = criterion_dict[hyp_params.dataset]
-if args.dataset == 'enrico':
+"""if args.dataset == 'enrico':
       hyp_params.criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(weights))
-
+"""
 print('orig_d:', hyp_params.orig_d)
 print('attn_dropout:', hyp_params.attn_dropout)
 print('modality_set:', hyp_params.modality_set)

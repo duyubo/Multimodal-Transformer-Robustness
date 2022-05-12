@@ -9,6 +9,7 @@ import time
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import os
 import pickle
+from torchsummary import summary
 
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
@@ -17,9 +18,25 @@ from sklearn.metrics import accuracy_score, f1_score
 from src.eval_metrics import *
 from src.models2 import *
 import itertools
+from prettytable import PrettyTable
+from thop import profile
+from fvcore.nn import FlopCountAnalysis, parameter_count_table
 
 """!!!!!!!!!!!!! Choose which MULT model version !!!!!!!!!!!!!"""
 from src.dynamic_models2 import DynamicMULTModel
+
+def count_parameters(model):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        params = parameter.numel()
+        table.add_row([name, params])
+        total_params+=params
+    print(table)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params
+    
 
 def initiate(hyp_params, train_loader, valid_loader, test_loader):
     if hyp_params.pretrain is not None:
@@ -39,12 +56,13 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader):
     if hyp_params.use_cuda:
         model = model.cuda()
     optimizer = getattr(optim, hyp_params.optim)(model.parameters(), lr=hyp_params.lr)
-    if hyp_params.dataset == 'enrico':
+    """if hyp_params.dataset == 'enrico':
         criterion = hyp_params.criterion
         if hyp_params.use_cuda:
             criterion = criterion.cuda()
     else:
-        criterion = getattr(nn, hyp_params.criterion)()
+    """
+    criterion = getattr(nn, hyp_params.criterion)()
     scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=hyp_params.when, factor=0.1, verbose=True)
     settings = {
                 'model': model,
@@ -57,8 +75,10 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader):
 def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
     model = settings['model']
     optimizer = settings['optimizer']
-    criterion = settings['criterion']    
+    criterion = settings['criterion']
+    #criterion is used to train model, evaluation may need different criterion   
     scheduler = settings['scheduler']
+    
     
     def train(model, optimizer, criterion):
         epoch_loss = 0
@@ -76,10 +96,9 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 with torch.cuda.device(0):
                     inputs = [i.cuda() for i in inputs]
                     eval_attr = eval_attr.cuda()     
-            batch_size = inputs[0].size(0)
-            raw_loss = 0   
+            batch_size = inputs[0].size(0)  
             preds = model(inputs)
-            raw_loss += criterion(preds, eval_attr)
+            raw_loss = criterion(preds, eval_attr)
 
             """ set up active part """
             if hyp_params.experiment_type == 'random_sample':
@@ -123,16 +142,14 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
               print("No such experiment") 
               raise(NotImplementedError)
             """ end set up active part """                
-
-            combined_loss = raw_loss
-            combined_loss.backward()
+            raw_loss.backward()
             
             torch.nn.utils.clip_grad_norm_(model.parameters(), hyp_params.clip)
             optimizer.step()
             
             proc_loss += raw_loss.item() * batch_size
             proc_size += batch_size
-            epoch_loss += combined_loss.item() * batch_size
+            epoch_loss += raw_loss.item() * batch_size
             if i_batch % hyp_params.log_interval == 0 and i_batch > 0:
                 avg_loss = proc_loss / proc_size
                 elapsed_time = time.time() - start_time
@@ -146,11 +163,8 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
     def evaluate(model, criterion, activate_modality, test=False):
         model.eval()
         loader = test_loader if test else valid_loader
-        total_loss = 0.0
-    
         results = []
         truths = []
-        
         with torch.no_grad():
             for i_batch, (batch_X, batch_Y) in enumerate(loader):
                 sample_ind = batch_X[0]
@@ -162,14 +176,25 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                         eval_attr = eval_attr.cuda()   
                 batch_size = inputs[0].size(0)
                 preds = model([inputs[i] if ( i in activate_modality) else (torch.zeros(inputs[i].size()).cuda()) for i in range(len(inputs))])
-                total_loss += criterion(preds, eval_attr).item() * batch_size
                 results.append(preds.cpu().detach())
                 truths.append(eval_attr.cpu().detach())
-                
-        avg_loss = total_loss / (hyp_params.n_test if test else hyp_params.n_valid)
         results = torch.cat(results)
         truths = torch.cat(truths)
-        return avg_loss, results, truths
+
+        if hyp_params.dataset == 'avmnist':
+            r = multiclass_acc(results.argmax(dim=-1).numpy(), truths.numpy())
+        elif hyp_params.dataset == 'mosei_senti':
+            r = binary_acc(results, truths, True)
+        elif hyp_params.dataset == 'mojupush':
+            r = 0-criterion(results, truths)
+        elif hyp_params.dataset == 'enrico':
+            r = multiclass_acc(results.argmax(dim=-1).numpy(), truths.numpy())
+        elif hyp_params.dataset == 'kinects':
+            raise NotImplementedError
+        else:
+            print(hyp_params.dataset + ' does not exist')
+            raise NotImplementedError        
+        return r, results, truths 
 
     def test_missing_modality(model, hyp_params):
         """!!!!! Test performance under modality drop !!!!!"""
@@ -184,21 +209,92 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             modality_choices = []
             for i in range(1, len(modalities) + 1):
               modality_choices.extend(itertools.combinations(list(range(len(modalities))), i))
+        else:
+            print('No ' + hyp_params.experiment_type)
+            raise NotImplementedError
 
         loss_conditions = []
-        for i in modality_choices:
-          print([modalities[m] for m in i], ": { ")
-          active_modality = i
+        for active_modality in modality_choices:
+          print([modalities[m] for m in active_modality], ": { ")
           modality_list = [modalities[j] for j in active_modality]
           m = ModalityStr(modality_list)
           active_cross = [[]] * len(modalities)
           active_cross_output = [[]] * len(modalities)
-          for j in i:
+          for j in active_modality:
               r = m.gen_modality_str(modalities[j])
               active_cross[j] = r.copy()
               active_cross_output[j] = r.copy() if r else [modalities[j]]
-          min_loss = 100
+          max_acc = -100
           lay_single = itertools.combinations_with_replacement([ii for ii in range(hyp_params.layers_single_attn + 1)], len(modalities))
+          best_layer_num = None
+          best_active_output = None
+          possible_active_cross = []
+          if len(active_modality) == 2 and hyp_params.experiment_type == 'random_sample':
+              """generate all possible modality combinations when there are only two active modalities"""
+              a_c_o = [[]] * len(modalities)
+              #1 
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0]]
+              a[active_modality[1]] = [modality_list[1]]
+              possible_active_cross.append(a)
+              #2
+              """a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0], modality_list[0] + modality_list[1]]
+              possible_active_cross.append(a)"""
+              #3
+              """a = a_c_o.copy()
+              a[active_modality[1]] = [modality_list[1], modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)"""
+              #4
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0] + modality_list[1]]
+              a[active_modality[1]] = [modality_list[1]]
+              possible_active_cross.append(a)
+              #5
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0]]
+              a[active_modality[1]] = [modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)
+              #6
+              """a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0] + modality_list[1]]
+              possible_active_cross.append(a)"""
+              #7
+              """a = a_c_o.copy()
+              a[active_modality[1]] = [modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)"""
+              #8
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0] + modality_list[1]]
+              a[active_modality[1]] = [modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)
+              #9
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0], modality_list[0] + modality_list[1]]
+              a[active_modality[1]] = [modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)
+              #10
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0] + modality_list[1]]
+              a[active_modality[1]] = [modality_list[1], modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)
+              #11
+              a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0], modality_list[0] + modality_list[1]]
+              a[active_modality[1]] = [modality_list[1], modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)
+              #12
+              """a = a_c_o.copy()
+              a[active_modality[1]] = [modality_list[1] + modality_list[0]]
+              possible_active_cross.append(a)"""
+              #13
+              """a = a_c_o.copy()
+              a[active_modality[0]] = [modality_list[0] + modality_list[1]]
+              possible_active_cross.append(a)"""
+          else:
+              possible_active_cross.append(active_cross_output)
+          print(possible_active_cross)
+          """generate all possible active_cross_output, if there is only two modalities"""
           for lay_num in lay_single:
               if hyp_params.experiment_type == 'baseline_ic':
                   l = [hyp_params.layers_single_attn] * len(hyp_params.modality_set)
@@ -206,22 +302,50 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                   l = [0] * len(hyp_params.modality_set)
               elif hyp_params.experiment_type == 'random_sample':
                   l = lay_num
-              model.set_active(active_single_attn_layer_num = l, 
-                                active_self_attn_layer_num = hyp_params.layers_self_attn, 
-                                active_hybrid_attn_layer_num = hyp_params.layers_cross_attn, 
-                                active_dimension = hyp_params.dimension, 
-                                active_head_num = hyp_params.num_heads, 
-                                active_head_dim = hyp_params.head_dim, 
-                                active_modality = active_modality,
-                                active_cross = active_cross, 
-                                active_cross_output = active_cross_output
-                                )
-              loss, results, truths = evaluate(model, criterion,  activate_modality = list(range(len(hyp_params.modality_set))), test=True)
-              if loss < min_loss:
-                min_loss = loss
-                best_results = results
-                best_layer_num = lay_num
-          print('best self atten layer number: ', best_layer_num)
+              for a in possible_active_cross:
+                  model.set_active(active_single_attn_layer_num = l, 
+                                    active_self_attn_layer_num = hyp_params.layers_self_attn, 
+                                    active_hybrid_attn_layer_num = hyp_params.layers_cross_attn, 
+                                    active_dimension = hyp_params.dimension, 
+                                    active_head_num = hyp_params.num_heads, 
+                                    active_head_dim = hyp_params.head_dim, 
+                                    active_modality = active_modality,
+                                    active_cross = active_cross, 
+                                    active_cross_output = a
+                                  )
+                  acc, results, truths = evaluate(model, criterion,  activate_modality = list(range(len(hyp_params.modality_set))), test=False)
+                  if acc > max_acc:
+                    best_results = results
+                    best_active_output = a.copy()
+                    best_layer_num = l
+                    max_acc = acc
+          print('best self atten layer number: ', best_layer_num, best_active_output)
+          model.set_active(active_single_attn_layer_num = best_layer_num, 
+                              active_self_attn_layer_num = hyp_params.layers_self_attn, 
+                              active_hybrid_attn_layer_num = hyp_params.layers_cross_attn, 
+                              active_dimension = hyp_params.dimension, 
+                              active_head_num = hyp_params.num_heads, 
+                              active_head_dim = hyp_params.head_dim, 
+                              active_modality = active_modality,
+                              active_cross = active_cross, 
+                              active_cross_output = best_active_output
+                          )
+          net = model.get_active_subnet(active_single_attn_layer_num = best_layer_num, 
+                              active_self_attn_layer_num = hyp_params.layers_self_attn, 
+                              active_hybrid_attn_layer_num = hyp_params.layers_cross_attn, 
+                              active_dimension = hyp_params.dimension, 
+                              active_head_num = hyp_params.num_heads, 
+                              active_head_dim = hyp_params.head_dim, 
+                              active_modality = active_modality,
+                              active_cross = active_cross, 
+                              active_cross_output = best_active_output)
+          
+          rand_input = [torch.rand(1, 50, 300), torch.rand(1, 50, 74), torch.rand(1, 50, 35)]
+          flops = FlopCountAnalysis(net, inputs = ([rand_input[i].cuda() for i in active_modality], ))
+          print(flops.total())
+          """macs, params = profile(net, inputs = ([rand_input[i].cuda() for i in active_modality], ))
+          print(macs, params)"""
+          acc, best_results, truths = evaluate(model, criterion,  activate_modality = list(range(len(hyp_params.modality_set))), test=True)
           #print(best_results[:10].argmax(dim=-1), truths[:10])
           if hyp_params.dataset == 'avmnist':
               print('acc: ', multiclass_acc(best_results.argmax(dim=-1).numpy(), truths.numpy()))
@@ -266,10 +390,11 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
           print("},")
         print("}")
 
-    best_valid = 1e8
+    best_valid = -1e8
     for epoch in range(1, hyp_params.num_epochs + 1):# 1, hyp_params.num_epochs + 1
         start = time.time()
         train(model, optimizer, criterion)
+        
         """ set back to the full modality during eval and test"""
         if  hyp_params.experiment_type == 'baseline_ic' or hyp_params.experiment_type == 'random_sample':
             model.set_active(
@@ -285,21 +410,21 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             )
         
         """ set back to the full modality during eval and test"""
-        val_loss, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=False)
-        test_loss, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=True)
+        val_acc, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=False)
+        test_acc, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=True)
         
         end = time.time()
         duration = end - start
-        scheduler.step(val_loss)    # Decay learning rate by validation loss
+        scheduler.step(1-val_acc)    # Decay learning rate by validation loss
 
         print("-"*50)
-        print('Epoch {:2d} | Time {:5.4f} sec | Valid Loss {:5.4f} | Test Loss {:5.4f}'.format(epoch, duration, val_loss, test_loss))
+        print('Epoch {:2d} | Time {:5.4f} sec | Valid Acc {:5.4f} | Test Acc {:5.4f}'.format(epoch, duration, abs(val_acc), abs(test_acc)))
         print("-"*50)
         
-        if val_loss < best_valid:
+        if val_acc > best_valid:
             print("Saved model at ", hyp_params.model_path)
             torch.save(model, hyp_params.model_path)
-            best_valid = val_loss
+            best_valid = val_acc
         if optimizer.param_groups[0]['lr'] <= 1e-6:
           break
 

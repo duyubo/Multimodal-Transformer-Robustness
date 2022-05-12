@@ -49,6 +49,10 @@ class MOSEI_Datasets(Dataset):
 class avMNIST_Datasets(Dataset):
     def __init__(self, dataset_path, split_type='train', n_patches = 7):
         super(avMNIST_Datasets, self).__init__()
+        """self.transformer = transforms.Compose([
+            avmnist_data.ToTensor(),
+            avmnist_data.Normalize((0.1307,), (0.3081,))
+        ])"""
         if split_type == 'test':
             self.image = torch.tensor(np.load(dataset_path + "/image/" + split_type + "_data.npy" )).float()
             self.audio = torch.tensor(np.load(dataset_path + "/audio/" + split_type + "_data.npy" )).float()
@@ -57,7 +61,6 @@ class avMNIST_Datasets(Dataset):
             image = torch.tensor(np.load(dataset_path + "/image/train_data.npy" )).float()
             audio = torch.tensor(np.load(dataset_path + "/audio/train_data.npy" )).float()
             labels = torch.tensor(np.load(dataset_path + "/train_labels.npy" )).long()
-
             if split_type == 'valid':
                 self.image = image[55000:60000]
                 self.audio = audio[55000:60000]
@@ -70,7 +73,7 @@ class avMNIST_Datasets(Dataset):
         self.audio /= 255.0
         l = self.image.shape[0]
         d = int(self.image.shape[1] ** 0.5)
-        da = int(self.audio.shape[1] ** 0.5)
+        da = int(self.audio.shape[1])
         self.image = self.image.reshape(l, n_patches, d//n_patches, n_patches, d//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)
         self.audio = self.audio.reshape(l, n_patches, da//n_patches, n_patches, da//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)  
         self.n_modalities = 2 # vision/ audio
@@ -436,9 +439,9 @@ class GentlePush_Datasets(Dataset):
 class Enrico_Datasets(Dataset): 
     def __init__(self, dataset_path, split_type="train", 
         noise_level=0, img_noise=False, wireframe_noise=False, 
-        img_dim_x=128, img_dim_y=256, random_seed=42, train_split=0.65, 
+        img_dim_x = 256, img_dim_y = 128, random_seed=42, train_split=0.65, 
         val_split=0.15, test_split=0.2, normalize_image=False):
-        super(Enrico_Datasets, self).__init__()
+        super(Enrico_Datasets, self).__init__()#128, 256
         self.noise_level = noise_level
         self.img_noise = img_noise
         self.wireframe_noise = wireframe_noise
@@ -450,11 +453,11 @@ class Enrico_Datasets(Dataset):
         self.wireframe_dir = os.path.join(dataset_path, "wireframes")
         self.hierarchy_dir = os.path.join(dataset_path, "hierarchies")
         self.n_modalities = 2
-        self.patch = 16
+        self.patch_x = 16 
+        self.patch_y = 32  
         with open(csv_file, "r") as f:
             reader = csv.DictReader(f)
             example_list = list(reader)
-
         # the wireframe files are corrupted for these files
         IGNORES = set(["50105", "50109"])
         example_list = [
@@ -484,10 +487,6 @@ class Enrico_Datasets(Dataset):
             transforms.Resize((img_dim_y, img_dim_x)),
             transforms.ToTensor()
         ]
-        if normalize_image:
-            img_transforms.append(transforms.Normalize(
-                (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)))
-
         # pytorch image transforms
         self.img_transforms = transforms.Compose(img_transforms)
 
@@ -521,6 +520,22 @@ class Enrico_Datasets(Dataset):
         self.label2Idx = label2Idx
         self.ui_types = UI_TYPES
 
+        self.screenImg = []
+        self.screenWireframeImg = []
+        for idx in range(len(self.keys)):
+            if idx % 100 == 0:
+              print("Finish " + str(idx) + " loadings")
+            example = self.example_list[self.keys[idx]]
+            screenId = example['screen_id']
+            # image modality
+            screenImg = Image.open(os.path.join(self.img_dir, screenId + ".jpg")).convert("RGB")
+            screenImg = self.img_transforms(screenImg)
+            self.screenImg.append(screenImg)
+            # wireframe image modality
+            screenWireframeImg = Image.open(os.path.join(self.wireframe_dir, screenId + ".jpg")).convert("RGB")
+            screenWireframeImg = self.img_transforms(screenWireframeImg)
+            self.screenWireframeImg.append(screenWireframeImg)
+
     def __len__(self):
         """Get number of samples in dataset."""
         return len(self.keys)
@@ -534,27 +549,13 @@ class Enrico_Datasets(Dataset):
 
     def __getitem__(self, index):
         idx = index
+        screenImg = self.screenImg[idx]
+        screenWireframeImg  = self.screenWireframeImg[idx]
         example = self.example_list[self.keys[idx]]
-        screenId = example['screen_id']
-        # image modality
-        screenImg = Image.open(os.path.join(
-            self.img_dir, screenId + ".jpg")).convert("RGB")
-        if self.img_noise:
-            screenImg = Image.fromarray(add_visual_noise(
-                [np.array(screenImg)], noise_level=self.noise_level)[0])
-        screenImg = self.img_transforms(screenImg)
-        # wireframe image modality
-        screenWireframeImg = Image.open(os.path.join(
-            self.wireframe_dir, screenId + ".png")).convert("RGBA")
-        if self.wireframe_noise:
-            screenWireframeImg = Image.fromarray(add_visual_noise(
-                [np.array(screenWireframeImg)], noise_level=self.noise_level)[0])
-        screenWireframeImg = self.img_transforms(screenWireframeImg)
-        # label
         screenLabel = self.topic2Idx[example['topic']]
         X = [index, 
-            screenImg.reshape(3, self.patch, self.img_dim_x//self.patch, self.patch, self.img_dim_y//self.patch).permute(1, 3, 0, 2, 4).reshape(self.patch **2, -1), 
-            screenWireframeImg.reshape(4, self.patch, self.img_dim_x//self.patch, self.patch, self.img_dim_y//self.patch).permute(1, 3, 0, 2, 4).reshape(self.patch **2, -1)]
+            screenImg.reshape(3, self.patch_x, self.img_dim_x//self.patch_x, self.patch_y, self.img_dim_y//self.patch_y).permute(1, 3, 0, 2, 4).reshape(self.patch_x * self.patch_y, -1), 
+            screenWireframeImg.reshape(3, self.patch_x, self.img_dim_x//self.patch_x, self.patch_y, self.img_dim_y//self.patch_y).permute(1, 3, 0, 2, 4).reshape(self.patch_x * self.patch_y, -1)]
         Y = screenLabel
         return X, Y 
 
@@ -562,11 +563,11 @@ class Enrico_Datasets(Dataset):
         return self.n_modalities
     
     def get_seq_len(self):
-        return self.patch ** 2
+        return self.patch_x * self.patch_y
     
     def get_dim(self):
-        return [self.img_dim_x * self.img_dim_y // (self.patch ** 2) * 3, 
-            self.img_dim_x * self.img_dim_y // (self.patch ** 2) * 4]
+        return [self.img_dim_x * self.img_dim_y // (self.patch_x * self.patch_y) * 3, 
+            self.img_dim_x * self.img_dim_y // (self.patch_x * self.patch_y) * 3]
     def get_lbl_info(self):
         # return number_of_labels, label_dim
         return len(self.keys), 1

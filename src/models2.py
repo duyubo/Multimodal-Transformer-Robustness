@@ -134,8 +134,6 @@ class MULTModel(nn.Module):
     """To be implemented! """
     def forward(self, x):
         assert len(x) == self.modality_num # missing modality will be repalced by ones or zeros, can not be deleted
-        x = [v.permute(0, 2, 1)for v in x]  # n_modalities * [batch_size, n_features, seq_len]
-
         proj_x = [self.proj[i](x[i]) for i in range(self.modality_num)]
         proj_x = torch.stack(proj_x)
         proj_x = proj_x.permute(0, 3, 1, 2)
