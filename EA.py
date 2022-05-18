@@ -165,7 +165,7 @@ class EvolutionSearch:
         truths = torch.cat(truths)
         if test:
           eval_mosei_senti(results, truths,  exclude_zero = True)
-        return binary_acc(results, truths, exclude_zero = True) + mosei_multiclass_acc(results, truths)
+        return binary_acc(results, truths, exclude_zero = True)# + mosei_multiclass_acc(results, truths)
     
 import sys
 import torch
@@ -178,7 +178,7 @@ parser = argparse.ArgumentParser(description='MOSEI Sentiment Analysis')
 parser.add_argument('-f', default='', type=str)
 parser.add_argument('--dataset', type=str, default='mosei_senti',
                     help='dataset to use (default: mosei_senti)')
-parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data',
+parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data/MOSEI',
                     help='path for storing the dataset')
 parser.add_argument('--model_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/MULT-single-test.pt',
                     help='path for storing the models')
@@ -263,4 +263,4 @@ if __name__ == '__main__':
     parent_model = torch.load(hyp_params.model_path)
     e = EvolutionSearch(parent_model, hyper_params = hyp_params, valid_loader = valid_loader, test_loader = test_loader)
     best_selection = e.search()
-    #e.test_modality([[[], ['at', 'atv'], ['vt', 'va', 'vta']], [['t'], ['at'], ['v', 'vt', 'va']]])
+    #e.test_modality([[['tv'], ['at', 'av'], ['vt', 'vta']], [['t', 'tv'], ['a', 'av'], ['vt', 'vta']]])

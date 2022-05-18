@@ -48,15 +48,25 @@ class SinusoidalPositionalEmbedding(nn.Module):
         from the description in Section 3.5 of "Attention Is All You Need".
         """
         half_dim = embedding_dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0)
-        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
+        emb_c1 = math.log(10000) / (half_dim - 1)
+
+        emb_c2 = torch.arange(embedding_dim, dtype=torch.int32)
+
+        emb = torch.exp((emb_c2 // 2).to(torch.float) * -emb_c1) # (embedding_dim,)
+        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0) # (num_emb, embedding_dim)
+        
+        # assign sinusoidal positional embedding to correct positions 
+        emb[:,emb_c2 % 2 == 0] = torch.sin(emb[:,emb_c2 % 2 == 0])
+        emb[:,emb_c2 % 2 == 1] = torch.cos(emb[:,emb_c2 % 2 == 1])
+
+        # emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1) # (num_emb, half_dim*2)
+        
         if embedding_dim % 2 == 1:
             # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[padding_idx, :] = 0
+        
         return emb
 
     def forward(self, input):
@@ -73,6 +83,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
         )
         self.weights[device] = self.weights[device].type_as(self._float_tensor)
         positions = make_positions(input, self.padding_idx, self.left_pad)
+        print(self.weights)
         return self.weights[device].index_select(0, positions.reshape(-1)).reshape(bsz, seq_len, -1).detach()
 
     def max_positions(self):

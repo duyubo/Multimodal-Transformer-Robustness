@@ -9,6 +9,11 @@ from sklearn.metrics import accuracy_score, f1_score
 def multiclass_acc(preds, truths):
     return np.sum(np.round(preds) == np.round(truths)) / float(len(truths))
 
+def multiclass_acc_eval(preds, truths):
+    results = preds.view(-1).numpy()
+    truths = truths.view(-1).numpy()
+    return np.sum(np.round(results) == np.round(truths)) / float(len(truths))
+
 def binary_acc(results, truths, exclude_zero=False):
     test_preds = results.view(-1).numpy()#.cpu().detach()
     test_truth = truths.view(-1).numpy()

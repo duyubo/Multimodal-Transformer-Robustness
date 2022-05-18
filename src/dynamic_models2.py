@@ -46,7 +46,7 @@ class DynamicMULTModel(MULTModel):
         num_heads, head_dim, layers_single_attn, layers_hybrid_attn, 
         layers_self_attn, attn_dropout:list, 
         relu_dropout, res_dropout, out_dropout, embed_dropout, 
-        attn_mask, output_dim, modality_set, all_steps):
+        attn_mask, output_dim, modality_set, all_steps, stride, padding, kernel_size):
 
         nn.Module.__init__(self)
         """ Fixed Hyperparameters """
@@ -78,7 +78,7 @@ class DynamicMULTModel(MULTModel):
         
         """ Temporal Convolutional Layers (None Shrinkable) """
         #self.proj = [nn.Sequential(nn.Linear(self.orig_dimensions[i], self.d), Transpose(1, 2)) for i in range(self.modality_num)]
-        self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=1, padding='same', bias=False)) for i in range(self.modality_num)]
+        self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=1,  stride = 1, bias=False), Transpose(1, 2), nn.LayerNorm(self.d), Transpose(1, 2)) for i in range(self.modality_num)]
         self.proj = nn.ModuleList(self.proj)
 
         """ Self Attentions (Shrinkable) self0 """
@@ -95,6 +95,7 @@ class DynamicMULTModel(MULTModel):
             modality_str = [i] + self.m.gen_modality_str_all(modality_set = [i])
             modality_str_with_index = {modality_str[i]: i for i in range(len(modality_str))}
             self.modality_index_list.append(modality_str_with_index)
+
         print('modality index list: ', self.modality_index_list)
 
         """ Self Attentions (Shrinkable) self1 """
@@ -112,7 +113,8 @@ class DynamicMULTModel(MULTModel):
         # must be in the same order as modality_combines
         self.active_cross = [self.m.gen_modality_str(i) for i in self.modality_list]
         self.active_cross_output = [self.m.gen_modality_str(i) for i in self.modality_list]
-
+        if len(self.modality_list) == 1:
+            self.active_cross_output = self.modality_list
         super(DynamicMULTModel, self).__init__(
             proj = self.proj, trans_mems0 = self.trans_mems0, trans = self.trans, trans_mems = self.trans_mems, 
             proj1 = self.proj1, proj2 = self.proj2, out_layer = self.out_layer,
@@ -155,7 +157,6 @@ class DynamicMULTModel(MULTModel):
         """ self attention of each modality"""
         proj_x1 = {self.modality_list[self.active_modality[i]]: self.trans_mems0['mems0' + self.modality_list[self.active_modality[i]]](proj_x[i]) for i in range(len(self.active_modality))}
         h_ = proj_x1
-
         """ multi level cross attention """
         last_hs = []
         hs = []
@@ -163,7 +164,6 @@ class DynamicMULTModel(MULTModel):
         for i in self.active_modality:
             for modality_cross in self.active_cross[i]:
                 h_[modality_cross] = self.trans['cross' + modality_cross](h_[modality_cross[-1]], h_[modality_cross[:-1]], h_[modality_cross[:-1]])
-            
             h = torch.cat([h_[modality_cross] for modality_cross in self.active_cross_output[i]], dim = 2)
             active_mask = []
             for m_c in self.active_cross_output[i]:
@@ -179,14 +179,13 @@ class DynamicMULTModel(MULTModel):
             if self.all_steps:
                 hs.append(h)
             else:
-                last_hs.append(h[-1])
+                last_hs.append(h.mean(dim = 0))
             
         if self.all_steps:
             out = torch.cat(hs, dim=2)  # [seq_len, batch_size, out_features]
             out = out.permute(1, 0, 2)  # [batch_size, seq_len, out_features]
         else:
             out = torch.cat(last_hs, dim=1)
-
         active_indexes = torch.Tensor(active_mask_output).type(torch.IntTensor).to(next(self.parameters()).device)
         """ Concatenation layer"""   
         out_proj = self.proj2(

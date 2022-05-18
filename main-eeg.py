@@ -93,7 +93,7 @@ output_dim_dict = {
 }
 
 criterion_dict = {
-    'mosei_senti':  'L1Loss',#MSELoss
+    'mosei_senti':  'L1Loss',
     'avmnist':   'CrossEntropyLoss', 
     'mojupush':  'MSELoss',
     'enrico': 'CrossEntropyLoss',
@@ -122,25 +122,7 @@ if torch.cuda.is_available():
 #
 ####################################################################
 
-print("Start loading the data....")
 
-train_data = get_data(args, 'train')
-valid_data = get_data(args, 'valid')
-test_data = get_data(args, 'test')
-
-"""if args.dataset == 'enrico':
-    weights, sampler= compute_weights(train_data) 
-    train_loader = DataLoader(train_data, sampler = sampler, batch_size = args.batch_size, shuffle = False)
-else:
-"""
-train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
-valid_loader = DataLoader(valid_data, batch_size = batch_sizes[args.dataset], shuffle = False)
-test_loader = DataLoader(test_data, batch_size = batch_sizes[args.dataset], shuffle = False)
-
-if args.dataset == 'mojupush':
-    args.all_steps = True
-
-print('Finish loading the data....')
 
 ####################################################################
 #
@@ -148,24 +130,53 @@ print('Finish loading the data....')
 #
 ####################################################################
 
-hyp_params = args
-hyp_params.orig_d = train_data.get_dim()
-hyp_params.l = train_data.get_seq_len()
-hyp_params.n_train, hyp_params.n_valid, hyp_params.n_test = len(train_data), len(valid_data), len(test_data)
-hyp_params.output_dim = output_dim_dict[hyp_params.dataset]
-hyp_params.criterion = criterion_dict[hyp_params.dataset]
-"""if args.dataset == 'enrico':
-      hyp_params.criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(weights))
-"""
-print('orig_d:', hyp_params.orig_d)
-print('attn_dropout:', hyp_params.attn_dropout)
-print('modality_set:', hyp_params.modality_set)
-print('modality_pool:', hyp_params.modality_pool)
-print('criterion: ', hyp_params.criterion)
-print('batch size: ', hyp_params.batch_size)
-print('num of train: ', hyp_params.n_train)
-print('sequence length: ', hyp_params.l)
+
 
 if __name__ == '__main__':
-    test_loss = train.initiate(hyp_params, train_loader, valid_loader, test_loader)
+    print("Start loading the data....")
+
+   
+    for i in range(1, 10):
+        """
+        # cross test
+        file_num_range_train = ['A0' + str(j) + 'E.mat' for j in range(1, 10) if j != i]
+        file_num_range_train.extend(['A0' + str(j) + 'T.mat' for j in range(1, 10) if j != i])
+        file_num_range_test = ['A0' + str(i) + 'E.mat', 'A0' + str(i) + 'T.mat']"""
+
+        """#single test
+        file_num_range_train = ['A0' + str(i) + 'T.mat']
+        file_num_range_test = ['A0' + str(i) + 'E.mat']"""
+
+        #combine test
+        file_num_range_train = ['A0' + str(j) + 'T.mat' for j in range(1, 10)]
+        file_num_range_test = ['A0' + str(j) + 'E.mat' for j in range(1, 10)]
+
+        print(file_num_range_train)
+        print(file_num_range_test)
+        train_data = get_data(args, split = 'train', train_ratio = 0.8, file_num_range_train = file_num_range_train, file_num_range_test = file_num_range_test)
+        valid_data = get_data(args, split = 'valid', train_ratio = 0.8, file_num_range_train = file_num_range_train, file_num_range_test = file_num_range_test)
+        test_data = get_data(args, split = 'test', train_ratio =0.8, file_num_range_train = file_num_range_train, file_num_range_test = file_num_range_test)
+
+        train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
+        valid_loader = DataLoader(valid_data, batch_size = batch_sizes[args.dataset], shuffle = False)
+        test_loader = DataLoader(test_data, batch_size = batch_sizes[args.dataset], shuffle = False)
+
+        print('Finish loading the data....')
+        hyp_params = args
+        hyp_params.orig_d = train_data.get_dim()
+        hyp_params.l = train_data.get_seq_len()
+        hyp_params.n_train, hyp_params.n_valid, hyp_params.n_test = len(train_data), len(valid_data), len(test_data)
+        hyp_params.output_dim = output_dim_dict[hyp_params.dataset]
+        hyp_params.criterion = criterion_dict[hyp_params.dataset]
+        hyp_params.model_path = '/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/MULT-eeg2a-cross' + str(i) + '.pt'
+        print('orig_d:', hyp_params.orig_d)
+        print('attn_dropout:', hyp_params.attn_dropout)
+        print('modality_set:', hyp_params.modality_set)
+        print('modality_pool:', hyp_params.modality_pool)
+        print('criterion: ', hyp_params.criterion)
+        print('batch size: ', hyp_params.batch_size)
+        print('num of train: ', hyp_params.n_train)
+        print('sequence length: ', hyp_params.l)
+
+        test_loss = train.initiate(hyp_params, train_loader, valid_loader, test_loader)
 

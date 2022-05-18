@@ -16,9 +16,12 @@ from collections import Counter
 import torch
 from torchvision import transforms
 from PIL import Image
+import scipy
+import scipy.io as sio
 
-"""Sentiment Analysis Dataset: MOSEI Dataset"""
-class MOSEI_Datasets(Dataset):
+
+"""Sentiment Analysis Dataset: MOSEI Dataset without BERT"""
+class CMUMOSEI_Datasets(Dataset):
     def __init__(self, dataset_path, split_type='train'):
         super(MOSEI_Datasets, self).__init__()
         dataset_path = os.path.join(dataset_path, 'mosei_senti_data.pkl')
@@ -44,6 +47,37 @@ class MOSEI_Datasets(Dataset):
     def __getitem__(self, index):
         X = [index, self.text[index], self.audio[index], self.vision[index]]
         Y = self.labels[index].squeeze(-1)
+        return X, Y
+
+"""Sentiment Analysis Dataset: MOSEI Dataset with BERT"""
+class MOSEI_Datasets(Dataset):
+    def __init__(self, dataset_path, split_type='train'):
+        super(MOSEI_Datasets, self).__init__()
+        # same preprocessing as MSAF
+        dataset_folder = os.path.join(dataset_path, split_type)
+        
+        self.labels = torch.tensor(np.load(os.path.join(dataset_folder, "label50.npy"))[:, :, 0]).float()
+        self.vision = torch.tensor(np.load(os.path.join(dataset_folder, "visual50.npy"))).float()
+        self.text = torch.tensor(np.load(os.path.join(dataset_folder, "bert50.npy"))).float()
+        self.audio = np.load(os.path.join(dataset_folder, "audio50.npy"))
+        self.audio[self.audio == -np.inf] = 0
+        self.audio = torch.tensor(self.audio).float()
+        self.n_modalities = 3 # vision/ text/ audio
+
+    def get_n_modalities(self):
+        return self.n_modalities
+    def get_seq_len(self):
+        return self.text.shape[1]
+    def get_dim(self):
+        return [self.text.shape[2], self.audio.shape[2], self.vision.shape[2]]
+    def get_lbl_info(self):
+        # return number_of_labels, label_dim
+        return self.labels.shape[1], self.labels.shape[2]
+    def __len__(self):
+        return len(self.labels)
+    def __getitem__(self, index):
+        X = [index, self.text[index], self.audio[index], self.vision[index]]
+        Y = self.labels[index]
         return X, Y
 
 class avMNIST_Datasets(Dataset):
@@ -439,7 +473,7 @@ class GentlePush_Datasets(Dataset):
 class Enrico_Datasets(Dataset): 
     def __init__(self, dataset_path, split_type="train", 
         noise_level=0, img_noise=False, wireframe_noise=False, 
-        img_dim_x = 256, img_dim_y = 128, random_seed=42, train_split=0.65, 
+        img_dim_x = 256, img_dim_y = 128, random_seed=42, train_split=0.8, 
         val_split=0.15, test_split=0.2, normalize_image=False):
         super(Enrico_Datasets, self).__init__()#128, 256
         self.noise_level = noise_level
@@ -454,7 +488,7 @@ class Enrico_Datasets(Dataset):
         self.hierarchy_dir = os.path.join(dataset_path, "hierarchies")
         self.n_modalities = 2
         self.patch_x = 16 
-        self.patch_y = 32  
+        self.patch_y = 8  
         with open(csv_file, "r") as f:
             reader = csv.DictReader(f)
             example_list = list(reader)
@@ -571,3 +605,124 @@ class Enrico_Datasets(Dataset):
     def get_lbl_info(self):
         # return number_of_labels, label_dim
         return len(self.keys), 1
+
+"""To be modified"""
+class NTU_Datasets(Dataset):
+    def __init__(self, dataset_path, split_type='train', n_patches = 7):
+        super(avMNIST_Datasets, self).__init__()
+        """self.transformer = transforms.Compose([
+            avmnist_data.ToTensor(),
+            avmnist_data.Normalize((0.1307,), (0.3081,))
+        ])"""
+        if split_type == 'test':
+            self.image = torch.tensor(np.load(dataset_path + "/image/" + split_type + "_data.npy" )).float()
+            self.audio = torch.tensor(np.load(dataset_path + "/audio/" + split_type + "_data.npy" )).float()
+            self.labels = torch.tensor(np.load(dataset_path + "/" + split_type + "_labels.npy" )).long()
+        else:
+            image = torch.tensor(np.load(dataset_path + "/image/train_data.npy" )).float()
+            audio = torch.tensor(np.load(dataset_path + "/audio/train_data.npy" )).float()
+            labels = torch.tensor(np.load(dataset_path + "/train_labels.npy" )).long()
+            if split_type == 'valid':
+                self.image = image[55000:60000]
+                self.audio = audio[55000:60000]
+                self.labels = labels[55000:60000]
+            else:
+                self.image = image[:55000]
+                self.audio = audio[:55000]
+                self.labels = labels[:55000]
+
+        self.audio /= 255.0
+        l = self.image.shape[0]
+        d = int(self.image.shape[1] ** 0.5)
+        da = int(self.audio.shape[1])
+        self.image = self.image.reshape(l, n_patches, d//n_patches, n_patches, d//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)
+        self.audio = self.audio.reshape(l, n_patches, da//n_patches, n_patches, da//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)  
+        self.n_modalities = 2 # vision/ audio
+
+    def get_n_modalities(self):
+        return self.n_modalities
+
+    def get_seq_len(self):
+        return self.image.shape[1]
+
+    def get_dim(self):
+        return [self.image.shape[2], self.audio.shape[2]]
+
+    def get_lbl_info(self):
+        # return number_of_labels, label_dim
+        return self.labels.shape[1], self.labels.shape[2]
+
+    def __len__(self):
+        return len(self.labels)
+  
+    def __getitem__(self, index):
+        X = [index, self.image[index], self.audio[index]]
+        Y = self.labels[index]
+        return X, Y 
+
+class EEG2a_Datasets(Dataset):
+    def __init__(self, dataset_path, split_type='train' , train_ratio = None, file_num_range_train = None, file_num_range_test = None):
+        super(EEG2a_Datasets, self).__init__()
+        eeg_signal = []
+        labels = []
+        data_class = ['data1', 'data2', 'data3', 'data4']
+        file_num_range_train = file_num_range_train
+        file_num_range_test = file_num_range_test
+        if split_type == 'test':
+            for set_num in file_num_range_test:
+                file_name = set_num
+                mat = scipy.io.loadmat(os.path.join(dataset_path, file_name))
+                for i in range(4): # each file has 4 classes
+                    data_num = mat[data_class[i]].shape[2]
+                    for j in range(data_num): # each class has a specific number of data
+                        eeg_signal.append(mat[data_class[i]][:,:,j])
+                        labels.append(i)
+            self.labels = torch.tensor(np.array(labels)).long()
+            self.eeg_signal = torch.tensor(np.array(eeg_signal)).float()
+        else:
+            for set_num in file_num_range_train:
+                file_name = set_num
+                mat = scipy.io.loadmat(os.path.join(dataset_path, file_name))
+                for i in range(4): # each file has 4 classes
+                    data_num = mat[data_class[i]].shape[2]
+                    for j in range(data_num): # each class has a specific number of data
+                        eeg_signal.append(mat[data_class[i]][:,:,j])
+                        labels.append(i)
+            total_num = len(labels)
+            train_num = int(total_num * train_ratio)
+            """c = list(zip(eeg_signal, labels))
+            random.shuffle(c)
+            eeg_signal, labels = zip(*c)"""
+            labels = torch.tensor(np.array(labels)).long()
+            eeg_signal  = torch.tensor(np.array(eeg_signal)).float()
+            g = torch.Generator()
+            g.manual_seed(0)
+            indexes = torch.randperm(labels.shape[0], generator = g)
+            if split_type == 'train':
+                self.labels = labels[indexes[:train_num]]
+                self.eeg_signal = eeg_signal[indexes[:train_num]]
+            else:
+                self.labels = labels[indexes[train_num:]]
+                self.eeg_signal = eeg_signal[indexes[train_num:]]
+
+        self.n_modalities = 1
+    def get_n_modalities(self):
+        return self.n_modalities
+
+    def get_seq_len(self):
+        return self.eeg_signal.shape[1]
+
+    def get_dim(self):
+        return [self.eeg_signal.shape[2]]
+
+    def get_lbl_info(self):
+        # return number_of_labels, label_dim
+        return self.labels.shape[1], self.labels.shape[2]
+
+    def __len__(self):
+        return len(self.labels)
+  
+    def __getitem__(self, index):
+        X = [index, self.eeg_signal[index]]
+        Y = self.labels[index]
+        return X, Y 

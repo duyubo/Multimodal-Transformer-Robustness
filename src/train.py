@@ -18,26 +18,13 @@ from sklearn.metrics import accuracy_score, f1_score
 from src.eval_metrics import *
 from src.models2 import *
 import itertools
-from prettytable import PrettyTable
+
 from thop import profile
 from fvcore.nn import FlopCountAnalysis, parameter_count_table
 
 """!!!!!!!!!!!!! Choose which MULT model version !!!!!!!!!!!!!"""
 from src.dynamic_models2 import DynamicMULTModel
-
-def count_parameters(model):
-    table = PrettyTable(["Modules", "Parameters"])
-    total_params = 0
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad: continue
-        params = parameter.numel()
-        table.add_row([name, params])
-        total_params+=params
-    print(table)
-    print(f"Total Trainable Params: {total_params}")
-    return total_params
     
-
 def initiate(hyp_params, train_loader, valid_loader, test_loader):
     if hyp_params.pretrain is not None:
         print("Load from pretrain model!!!!!!!!")
@@ -51,7 +38,10 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader):
             relu_dropout = hyp_params.relu_dropout, res_dropout = hyp_params.res_dropout, 
             out_dropout = hyp_params.out_dropout, embed_dropout = hyp_params.embed_dropout, 
             attn_mask = True, output_dim = hyp_params.output_dim, modality_set = hyp_params.modality_set,
-            all_steps =  hyp_params.all_steps 
+            all_steps =  hyp_params.all_steps,
+            stride = 0, # To be modified!!!!
+            padding = 0, 
+            kernel_size = 0
         ) 
     if hyp_params.use_cuda:
         model = model.cuda()
@@ -79,7 +69,6 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
     #criterion is used to train model, evaluation may need different criterion   
     scheduler = settings['scheduler']
     
-    
     def train(model, optimizer, criterion):
         epoch_loss = 0
         model.train()
@@ -90,6 +79,9 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         for batch_X, batch_Y in train_loader: 
             sample_ind = batch_X[0]
             inputs = batch_X[1:]
+            """print('audio: ', inputs[1].max(), inputs[1].min())
+            print('visual: ', inputs[2].max(), inputs[2].min())
+            print('text: ', inputs[0].max(), inputs[0].min())"""
             eval_attr = batch_Y
             model.zero_grad()
             if hyp_params.use_cuda:
@@ -99,7 +91,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             batch_size = inputs[0].size(0)  
             preds = model(inputs)
             raw_loss = criterion(preds, eval_attr)
-
+            
             """ set up active part """
             if hyp_params.experiment_type == 'random_sample':
                 active_modality = hyp_params.modality_pool[torch.randint(low=0, high = len(hyp_params.modality_pool), size = (1, ))[0].item()]
@@ -114,6 +106,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                               active_modality = active_modality,
                               active_cross = active_cross, 
                               active_cross_output = active_cross_output)
+                              
             elif hyp_params.experiment_type == 'baseline_ic':
                 model.set_active(
                                 active_single_attn_layer_num = [hyp_params.layers_single_attn] * len(hyp_params.modality_set),
@@ -180,14 +173,16 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 truths.append(eval_attr.cpu().detach())
         results = torch.cat(results)
         truths = torch.cat(truths)
-
         if hyp_params.dataset == 'avmnist':
             r = multiclass_acc(results.argmax(dim=-1).numpy(), truths.numpy())
         elif hyp_params.dataset == 'mosei_senti':
-            r = binary_acc(results, truths, True)
+            r = binary_acc(results, truths, True) 
+            #r += multiclass_acc_eval(results, truths)
         elif hyp_params.dataset == 'mojupush':
             r = 0-criterion(results, truths)
         elif hyp_params.dataset == 'enrico':
+            r = multiclass_acc(results.argmax(dim=-1).numpy(), truths.numpy())
+        elif hyp_params.dataset == 'eeg2a':
             r = multiclass_acc(results.argmax(dim=-1).numpy(), truths.numpy())
         elif hyp_params.dataset == 'kinects':
             raise NotImplementedError
@@ -293,7 +288,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
               possible_active_cross.append(a)"""
           else:
               possible_active_cross.append(active_cross_output)
-          print(possible_active_cross)
+          print('Possible Active Cross: ', possible_active_cross)
           """generate all possible active_cross_output, if there is only two modalities"""
           for lay_num in lay_single:
               if hyp_params.experiment_type == 'baseline_ic':
@@ -319,7 +314,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                     best_active_output = a.copy()
                     best_layer_num = l
                     max_acc = acc
-          print('best self atten layer number: ', best_layer_num, best_active_output)
+          print('best self atten layer number: ', best_layer_num, best_active_output, 'best validation accuracy: ', max_acc)
           model.set_active(active_single_attn_layer_num = best_layer_num, 
                               active_self_attn_layer_num = hyp_params.layers_self_attn, 
                               active_hybrid_attn_layer_num = hyp_params.layers_cross_attn, 
@@ -330,7 +325,8 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                               active_cross = active_cross, 
                               active_cross_output = best_active_output
                           )
-          net = model.get_active_subnet(active_single_attn_layer_num = best_layer_num, 
+          """Test parameter number!"""
+          """net = model.get_active_subnet(active_single_attn_layer_num = best_layer_num, 
                               active_self_attn_layer_num = hyp_params.layers_self_attn, 
                               active_hybrid_attn_layer_num = hyp_params.layers_cross_attn, 
                               active_dimension = hyp_params.dimension, 
@@ -343,18 +339,19 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
           rand_input = [torch.rand(1, 50, 300), torch.rand(1, 50, 74), torch.rand(1, 50, 35)]
           flops = FlopCountAnalysis(net, inputs = ([rand_input[i].cuda() for i in active_modality], ))
           print(flops.total())
-          """macs, params = profile(net, inputs = ([rand_input[i].cuda() for i in active_modality], ))
+          macs, params = profile(net, inputs = ([rand_input[i].cuda() for i in active_modality], ))
           print(macs, params)"""
           acc, best_results, truths = evaluate(model, criterion,  activate_modality = list(range(len(hyp_params.modality_set))), test=True)
-          #print(best_results[:10].argmax(dim=-1), truths[:10])
           if hyp_params.dataset == 'avmnist':
-              print('acc: ', multiclass_acc(best_results.argmax(dim=-1).numpy(), truths.numpy()))
+              print('acc: ', acc)
           elif hyp_params.dataset == 'mosei_senti':
               eval_mosei_senti(best_results, truths, True)
           elif hyp_params.dataset == 'mojupush':
-              print('MSE: ', criterion(best_results, truths))
+              print('MSE: ', -acc)
           elif hyp_params.dataset == 'enrico':
-             print('acc: ', multiclass_acc(best_results.argmax(dim=-1).numpy(), truths.numpy()))
+              print('acc: ', acc)
+          elif hyp_params.dataset == 'eeg2a':
+              print('acc: ', acc)
           elif hyp_params.dataset == 'kinects':
               raise NotImplementedError
           else:
@@ -382,6 +379,8 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
               print('MSE: ', criterion(best_results, truths))
           elif hyp_params.dataset == 'enrico':
               print('acc: ', multiclass_acc(best_results.argmax(dim=-1).numpy(), truths.numpy()))
+          elif hyp_params.dataset == 'eeg2a':
+              print('acc: ', multiclass_acc(results.argmax(dim=-1).numpy(), truths.numpy()))
           elif hyp_params.dataset == 'kinects':
               raise NotImplementedError
           else:
@@ -391,6 +390,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         print("}")
 
     best_valid = -1e8
+    time_total_start = time.time()
     for epoch in range(1, hyp_params.num_epochs + 1):# 1, hyp_params.num_epochs + 1
         start = time.time()
         train(model, optimizer, criterion)
@@ -405,17 +405,18 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                             active_head_num = hyp_params.num_heads, 
                             active_head_dim = hyp_params.head_dim, 
                             active_modality = list(range(len(hyp_params.modality_set))),
-                            active_cross = [model.m.gen_modality_str(i) for i in hyp_params.modality_set], 
-                            active_cross_output = [model.m.gen_modality_str(i) for i in hyp_params.modality_set]
+                            active_cross = [model.m.gen_modality_str(i) for i in hyp_params.modality_set] if len(hyp_params.modality_set) > 1 else [[]], 
+                            active_cross_output = [model.m.gen_modality_str(i) for i in hyp_params.modality_set] if len(hyp_params.modality_set) > 1 else hyp_params.modality_set
             )
-        
+        end = time.time()
+
         """ set back to the full modality during eval and test"""
         val_acc, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=False)
         test_acc, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=True)
         
-        end = time.time()
+        
         duration = end - start
-        scheduler.step(1-val_acc)    # Decay learning rate by validation loss
+        scheduler.step(1-val_acc)# Decay learning rate by validation loss
 
         print("-"*50)
         print('Epoch {:2d} | Time {:5.4f} sec | Valid Acc {:5.4f} | Test Acc {:5.4f}'.format(epoch, duration, abs(val_acc), abs(test_acc)))
@@ -428,6 +429,8 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         if optimizer.param_groups[0]['lr'] <= 1e-6:
           break
 
+    time_total_end = time.time()
+    print(time_total_end - time_total_start)
     model = torch.load(hyp_params.model_path)
     if hyp_params.experiment_type == 'baseline_ia':
         masking_inputs(model, hyp_params)

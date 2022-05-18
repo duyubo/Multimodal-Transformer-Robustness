@@ -55,6 +55,8 @@ class ModalityStr():
     index_list: index of cross attention combinations
     """
     modality_str = []
+    if len(self.modality_set) == 1:
+        return modality_str
     if modality_set is None:
       input_str1 = self.modality_set.copy()
     else:
