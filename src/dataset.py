@@ -56,12 +56,17 @@ class MOSEI_Datasets(Dataset):
         # same preprocessing as MSAF
         dataset_folder = os.path.join(dataset_path, split_type)
         
-        self.labels = torch.tensor(np.load(os.path.join(dataset_folder, "label50.npy"))[:, :, 0]).float()
-        self.vision = torch.tensor(np.load(os.path.join(dataset_folder, "visual50.npy"))).float()
+        
+        vision = np.load(os.path.join(dataset_folder, "visual50.npy"))
+        audio = np.load(os.path.join(dataset_folder, "audio50.npy"))
+        audio[audio == -np.inf] = 0
+        EPS = 1e-6
+        self.vision = torch.tensor(np.array([np.nan_to_num((v - v.mean(0, keepdims=True)) / (EPS + np.std(v, axis=0, keepdims=True))) for v in vision])).cpu().detach()
+        self.audio = torch.tensor(np.array([np.nan_to_num((a - a.mean(0, keepdims=True)) / (EPS + np.std(a, axis=0, keepdims=True))) for a in audio])).cpu().detach()
+        
         self.text = torch.tensor(np.load(os.path.join(dataset_folder, "bert50.npy"))).float()
-        self.audio = np.load(os.path.join(dataset_folder, "audio50.npy"))
-        self.audio[self.audio == -np.inf] = 0
-        self.audio = torch.tensor(self.audio).float()
+        self.labels = torch.tensor(np.load(os.path.join(dataset_folder, "label50.npy"))[:, :, 0]).float()
+      
         self.n_modalities = 3 # vision/ text/ audio
 
     def get_n_modalities(self):
