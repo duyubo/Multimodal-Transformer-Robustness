@@ -55,14 +55,16 @@ class MOSEI_Datasets(Dataset):
         super(MOSEI_Datasets, self).__init__()
         # same preprocessing as MSAF
         dataset_folder = os.path.join(dataset_path, split_type)
-        
-        
-        vision = np.load(os.path.join(dataset_folder, "visual50.npy"))
-        audio = np.load(os.path.join(dataset_folder, "audio50.npy"))
+        vision = np.load(os.path.join(dataset_folder, "visual50.npy")).astype(np.float32)
+        audio = np.load(os.path.join(dataset_folder, "audio50.npy")).astype(np.float32)
         audio[audio == -np.inf] = 0
         EPS = 1e-6
-        self.vision = torch.tensor(np.array([np.nan_to_num((v - v.mean(0, keepdims=True)) / (EPS + np.std(v, axis=0, keepdims=True))) for v in vision])).cpu().detach()
-        self.audio = torch.tensor(np.array([np.nan_to_num((a - a.mean(0, keepdims=True)) / (EPS + np.std(a, axis=0, keepdims=True))) for a in audio])).cpu().detach()
+        self.vision = torch.tensor(vision).float().cpu().detach()#
+        self.audio = torch.tensor(audio).float().cpu().detach()#
+        #self.vision = torch.tensor(np.array([np.nan_to_num((v - np.mean(v, axis = 0, keepdims=True)) / (EPS + np.std(v, axis=0, keepdims=True))) for v in vision])).float().cpu().detach()
+        #self.audio = torch.tensor(np.array([np.nan_to_num((a - np.mean(a, axis = 0, keepdims=True)) / (EPS + np.std(a, axis=0, keepdims=True))) for a in audio])).float().cpu().detach()
+        #self.vision = torch.tensor(1/(1 + np.exp(-vision))).float().cpu().detach()
+        #self.audio = torch.tensor(1/(1 + np.exp(-audio))).float().cpu().detach()
         
         self.text = torch.tensor(np.load(os.path.join(dataset_folder, "bert50.npy"))).float()
         self.labels = torch.tensor(np.load(os.path.join(dataset_folder, "label50.npy"))[:, :, 0]).float()
@@ -86,12 +88,8 @@ class MOSEI_Datasets(Dataset):
         return X, Y
 
 class avMNIST_Datasets(Dataset):
-    def __init__(self, dataset_path, split_type='train', n_patches = 7):
+    def __init__(self, dataset_path, split_type='train', n_patches = 4):
         super(avMNIST_Datasets, self).__init__()
-        """self.transformer = transforms.Compose([
-            avmnist_data.ToTensor(),
-            avmnist_data.Normalize((0.1307,), (0.3081,))
-        ])"""
         if split_type == 'test':
             self.image = torch.tensor(np.load(dataset_path + "/image/" + split_type + "_data.npy" )).float()
             self.audio = torch.tensor(np.load(dataset_path + "/audio/" + split_type + "_data.npy" )).float()
@@ -114,7 +112,8 @@ class avMNIST_Datasets(Dataset):
         d = int(self.image.shape[1] ** 0.5)
         da = int(self.audio.shape[1])
         self.image = self.image.reshape(l, n_patches, d//n_patches, n_patches, d//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)
-        self.audio = self.audio.reshape(l, n_patches, da//n_patches, n_patches, da//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)  
+        #self.audio = self.audio.reshape(l, n_patches, da//n_patches, n_patches, da//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)  
+        self.audio = self.audio.reshape(l, n_patches ** 2, da//(n_patches ** 2), da).reshape(l, n_patches ** 2 , -1)  
         self.n_modalities = 2 # vision/ audio
 
     def get_n_modalities(self):
