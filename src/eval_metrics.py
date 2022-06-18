@@ -14,13 +14,13 @@ def multiclass_acc_eval(preds, truths):
     truths = truths.view(-1).numpy()
     return np.sum(np.round(results) == np.round(truths)) / float(len(truths))
 
-def binary_acc(results, truths, exclude_zero=False):
+def binary_acc(results, truths, exclude_zero=True):
     test_preds = results.view(-1).numpy()#.cpu().detach()
     test_truth = truths.view(-1).numpy()
     non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0 or (not exclude_zero)])
     binary_truth = (test_truth[non_zeros] > 0)
     binary_preds = (test_preds[non_zeros] > 0)
-
+    
     return accuracy_score(binary_truth, binary_preds)
 
 def mosei_multiclass_acc(test_preds, test_truth):

@@ -25,6 +25,7 @@ class ModalityStr():
   def __init__(self, modality_set:list):
       self.modality_set = modality_set
 
+  """generate modality string: concate the string with not included modality character"""
   def gen_modality_str(self, input_str):
     modality_str = []
     for ch in self.modality_set:
@@ -32,6 +33,7 @@ class ModalityStr():
         modality_str.append(input_str + ch)
     return modality_str
 
+  """generate modality string randomly"""
   def rand_gen_modality_str(self, modality_set:list, p = 0.5):
       modality_str = []
       assert not (len(modality_set) == len(self.modality_set) == 1)
@@ -48,28 +50,28 @@ class ModalityStr():
           input_str1 = input_str
           step += 1
       return modality_str
+  
+  """
+      generate all possible cross attention combinations 
+      modality_set: modalities used to generate new modalities with self.modality_set
+  """
   def gen_modality_str_all(self, modality_set:list = None):
-    """
-    generate all possible cross attention combinations 
-    modality_set: modalities used to generate new modalities with self.modality_set
-    index_list: index of cross attention combinations
-    """
-    modality_str = []
-    if len(self.modality_set) == 1:
-        return modality_str
-    if modality_set is None:
-      input_str1 = self.modality_set.copy()
-    else:
-      assert not len(modality_set) == len(self.modality_set) == 1
-      input_str1 = modality_set.copy()
-    while len(modality_str) == 0 or len(modality_str[-1]) < len(self.modality_set):
-      input_str = []
-      for s in input_str1:
-        s1 = self.gen_modality_str(s)
-        modality_str.extend(s1)
-        input_str.extend(s1)
-      input_str1 = input_str
-    return modality_str
+      modality_str = []
+      if len(self.modality_set) == 1:
+          return modality_str
+      if modality_set is None:
+          input_str1 = self.modality_set.copy()
+      else:
+          assert not len(modality_set) == len(self.modality_set) == 1
+          input_str1 = modality_set.copy()
+      while len(modality_str) == 0 or len(modality_str[-1]) < len(self.modality_set):
+          input_str = []
+          for s in input_str1:
+              s1 = self.gen_modality_str(s)
+              modality_str.extend(s1)
+              input_str.extend(s1)
+          input_str1 = input_str
+      return modality_str
 
 def gen_subnet(parent_set:list, p):
     result = []
@@ -80,7 +82,7 @@ def gen_subnet(parent_set:list, p):
     return result
 
 class MULTModel(nn.Module):
-    def __init__(self, proj, trans_mems0, trans, trans_mems, proj1, proj2, out_layer,
+    def __init__(self, proj, trans_mems0, trans, translation, trans_mems, proj1, proj2, out_layer,
         origin_dimensions:list, dimension, 
         num_heads, head_dim, layers_hybrid_attn, layers_self_attn, attn_dropout:list, 
         relu_dropout, res_dropout, out_dropout, embed_dropout, attn_mask, output_dim,
@@ -119,6 +121,7 @@ class MULTModel(nn.Module):
 
         """ Crossmodal Attentions (Shrinkable) """
         self.trans = trans
+        self.translation = translation
 
         """ Self Attentions (Shrinkable) """
         self.trans_mems = trans_mems

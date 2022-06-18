@@ -5,6 +5,7 @@ import argparse
 from src.utils import *
 from torch.utils.data import DataLoader
 from src import train
+from src.dataset import collate_fn_mosei
 from src.data_utils import compute_weights
 import random
 
@@ -32,7 +33,7 @@ parser.add_argument('--out_dropout', type=float, default=0.1,
 # Architecture
 parser.add_argument('--dimension', type=int, default=30,
                     help='number of hiddenlayers in the network (default: 30)')
-parser.add_argument('--layers_cross_attn', type=int, default=3,
+parser.add_argument('--layers_cross_attn', type=int, default=4,
                     help='number of layers in the cross attention(default: 3)')     
 parser.add_argument('--layers_single_attn', type=int, default=3,
                     help='number of layers in the single attention(default: 3)')
@@ -48,8 +49,10 @@ parser.add_argument('--modality_pool', type=int, nargs='+', action='append', def
                     help='possible modality combinations [[0], [1], [2], [0, 1], [0, 2], [1, 2], [0, 1, 2]]')
 parser.add_argument('--modality_set', type=str, nargs="*", default=['t', 'a', 'v'],
                     help=' a list of modality names [\'t\', \'a\', \'v\']')
-parser.add_argument('--all_steps', action = 'store_true', help = 'keep all intermidiate results')     
-
+parser.add_argument('--all_steps', action = 'store_true', help = 'keep all intermidiate results')
+parser.add_argument('--all_module', action = 'store_true', help = 'selected modules for baseline ic')     
+parser.add_argument('--specific', type=int, nargs='+', action='append', default=None, #[[[], []], [[], ['A']]]
+                    help='possible modality combinations ')
 # Tuning
 parser.add_argument('--batch_size', type=int, default=16, metavar='N',
                     help='batch size (default: 24)')
@@ -102,7 +105,7 @@ criterion_dict = {
 }
 
 batch_sizes = {
-    'mosei_senti':  128 * 4,
+    'mosei_senti':  256 * 2,
     'avmnist':   128 * 4, 
     'mojupush': 128 * 4,
     'enrico': 128 * 4,
@@ -128,14 +131,10 @@ train_data = get_data(args, 'train')
 valid_data = get_data(args, 'valid')
 test_data = get_data(args, 'test')
 
-"""if args.dataset == 'enrico':
-    weights, sampler= compute_weights(train_data) 
-    train_loader = DataLoader(train_data, sampler = sampler, batch_size = args.batch_size, shuffle = False)
-else:
-"""
-train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True)
-valid_loader = DataLoader(valid_data, batch_size = batch_sizes[args.dataset], shuffle = False)
-test_loader = DataLoader(test_data, batch_size = batch_sizes[args.dataset], shuffle = False)
+if args.dataset == 'mosei_senti':
+    train_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, collate_fn = collate_fn_mosei)
+    valid_loader = DataLoader(valid_data, batch_size = batch_sizes[args.dataset], shuffle = False, collate_fn = collate_fn_mosei)
+    test_loader = DataLoader(test_data, batch_size = batch_sizes[args.dataset], shuffle = False, collate_fn = collate_fn_mosei)
 
 if args.dataset == 'mojupush':
     args.all_steps = True
@@ -154,9 +153,7 @@ hyp_params.l = train_data.get_seq_len()
 hyp_params.n_train, hyp_params.n_valid, hyp_params.n_test = len(train_data), len(valid_data), len(test_data)
 hyp_params.output_dim = output_dim_dict[hyp_params.dataset]
 hyp_params.criterion = criterion_dict[hyp_params.dataset]
-"""if args.dataset == 'enrico':
-      hyp_params.criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(weights))
-"""
+
 print('orig_d:', hyp_params.orig_d)
 print('attn_dropout:', hyp_params.attn_dropout)
 print('modality_set:', hyp_params.modality_set)
@@ -164,6 +161,8 @@ print('modality_pool:', hyp_params.modality_pool)
 print('criterion: ', hyp_params.criterion)
 print('batch size: ', hyp_params.batch_size)
 print('num of train: ', hyp_params.n_train)
+print('num of valid: ', hyp_params.n_valid)
+print('num of test: ', hyp_params.n_test)
 print('sequence length: ', hyp_params.l)
 
 if __name__ == '__main__':

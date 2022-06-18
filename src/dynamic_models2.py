@@ -9,6 +9,7 @@ from modules.transformer import TransformerEncoder
 from modules.dynamic_transformer import DynamicTransformerEncoder
 from src.models2 import  *
 from modules.dynamic_layers import DynamicLinear, DynamicLayerNorm
+from transformers import BertTokenizer, BertModel, BertConfig
 
 class Transpose(nn.Module):
     """Custom transpose module for easier Sequential usage."""
@@ -18,6 +19,54 @@ class Transpose(nn.Module):
         self.dim1 = dim1
     def forward(self, x):
         return torch.transpose(x, self.dim0, self.dim1)
+
+class RNN_Header(nn.Module):
+    """Custom transpose module for easier Sequential usage."""
+    def __init__(self, input_dim, hidden_dim, num_layers):
+        super().__init__()
+        self.lstm1 = nn.GRU(input_size=input_dim, hidden_size=hidden_dim//2, num_layers=num_layers, batch_first=True, bidirectional = True)
+        self.lstm2 = nn.GRU(input_size=hidden_dim, hidden_size=hidden_dim//2, num_layers=num_layers, batch_first=True, bidirectional = True)
+        #self.lstm3 = nn.LSTM(input_size=hidden_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
+        self.drop = nn.Dropout(p=0.2)
+        self.ln = nn.LayerNorm(hidden_dim, elementwise_affine = False)
+        self.ln1 = nn.LayerNorm(input_dim,  elementwise_affine = False)
+        
+    def forward(self, x):
+        x, h1 = self.lstm1(x)
+        x = self.ln(x)
+        x, h2 = self.lstm2(x)
+        h2 = torch.cat((h2[0], h2[1]), dim = 1)
+        return h2.unsqueeze(1)
+        #return x
+
+class BertTextEncoder(nn.Module):
+    def __init__(self):
+        super(BertTextEncoder, self).__init__()
+        model_class = BertModel
+        self.model = model_class.from_pretrained('/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data/pretrained_berts/bert_en')
+
+    def forward(self, text):
+        input_ids, input_mask, segment_ids = text[0].long(), text[1].float(), text[2].long()
+        with torch.no_grad():
+            last_hidden_states = self.model(input_ids=input_ids,
+                                            attention_mask=input_mask,
+                                            token_type_ids=segment_ids)[0]  # Models outputs are now tuples
+        return last_hidden_states
+
+
+class CNN_Header(nn.Module):
+    """Custom transpose module for easier Sequential usage."""
+    def __init__(self, input_dim, hidden_dim, n_patches = 4):
+        super().__init__()
+        self.cnn1 =  nn.Conv2d(1, 1, kernel_size=3, padding='same', bias=False)    
+        #self.cnn2 =  nn.Conv2d(hidden_dim, 1, kernel_size=3, padding='same', bias=False)  
+        self.n_patches = n_patches
+    def forward(self, x):
+        x = self.cnn1(x)
+        #x = self.cnn2(x)
+        s = x.shape
+        x = x.reshape(s[0], s[1], self.n_patches, s[2]//self.n_patches, self.n_patches, s[3]//self.n_patches).permute(0, 2, 4, 1, 3, 5).reshape(s[0], self.n_patches **2, -1)
+        return x
 
 class DynamicMULTModel(MULTModel):
     """ 
@@ -46,7 +95,7 @@ class DynamicMULTModel(MULTModel):
         num_heads, head_dim, layers_single_attn, layers_hybrid_attn, 
         layers_self_attn, attn_dropout:list, 
         relu_dropout, res_dropout, out_dropout, embed_dropout, 
-        attn_mask, output_dim, modality_set, all_steps, stride, padding, kernel_size):
+        attn_mask, output_dim, modality_set, all_steps, stride, padding, kernel_size, experiment_type):
 
         nn.Module.__init__(self)
         """ Fixed Hyperparameters """
@@ -63,6 +112,7 @@ class DynamicMULTModel(MULTModel):
         self.modality_list = modality_set
         self.all_steps = all_steps
         self.m = ModalityStr(modality_set)
+        self.experiment_type = experiment_type
 
         """ Shrinkable Hyperparameters
         in the parent graph we set up each modality with the same number of layers, hidden dimensions, head numbers and etc. 
@@ -75,27 +125,48 @@ class DynamicMULTModel(MULTModel):
         self.layers_self_attn = layers_self_attn
         self.modality_num = len(self.orig_dimensions)
         self.combined_dim = AmnSum(self.modality_num) * self.d
+
+        self.embedding = BertTextEncoder()
         
-        """ Temporal Convolutional Layers (None Shrinkable) """
+        """ Feature Extraction Layer (None Shrinkable) """
+        # Linear
         #self.proj = [nn.Sequential(nn.Linear(self.orig_dimensions[i], self.d), Transpose(1, 2)) for i in range(self.modality_num)]
-        self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=1,  stride = 1, bias=False), Transpose(1, 2), nn.LayerNorm(self.d), Transpose(1, 2)) for i in range(self.modality_num)]
+        # CNN
+        #self.proj = [nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=3,  stride = 1, bias=False)) for i in range(self.modality_num)]
+        # RNN
+        self.proj = []
+        for i in range(self.modality_num):
+            #if self.modality_list[i] == 'a' or self.modality_list == 'v':
+            if self.modality_list[i] in ['i', 'A']:
+                self.proj.append(nn.Sequential(CNN_Header(1, self.d), RNN_Header((self.orig_dimensions[i] // 4) * (self.orig_dimensions[i] // 4), self.d, 1), Transpose(1, 2)))
+            elif self.modality_list[i] in ['t']:
+                self.proj.append(nn.Sequential(BertTextEncoder(), RNN_Header(self.orig_dimensions[i], self.d, 1), Transpose(1, 2))) 
+            else:
+                self.proj.append(nn.Sequential(RNN_Header(self.orig_dimensions[i], self.d, 1), Transpose(1, 2)))
+            #else:
+            #self.proj.append(nn.Sequential(Transpose(1, 2), nn.Conv1d(self.orig_dimensions[i], self.d, kernel_size=1,  stride = 1, bias=False)))
         self.proj = nn.ModuleList(self.proj)
 
-        """ Self Attentions (Shrinkable) self0 """
+        """ Self Attentions (Shrinkable) """
         self.trans_mems0 = nn.ModuleDict({'mems0' + self.modality_list[i]: self.get_network(i, 0, mem=False, layers = self.layers_single_attn) for i in range(self.modality_num)})
         print('mems0: ', self.trans_mems0.keys())
 
-        """ cross Attentions (Shrinkable) cross """
+        """ Cross Attentions (Shrinkable) """
         modality_combines = self.m.gen_modality_str_all()
         self.trans = nn.ModuleDict({'cross' + modality_combines[i]: self.get_network(i, i, mem=False, layers=self.layers_hybrid_attn) for i in range(len(modality_combines))})
         print('trans: ', self.trans.keys())
         
+        """ Tranlation Module"""
+        self.translation = {'translation' + m: nn.Linear(self.d, self.d) for m in modality_combines}
+        self.translation  = nn.ModuleDict(self.translation)
+        print('translation: ', self.translation.keys())
+        
+        """Modality Index List"""
         self.modality_index_list = []
         for i in self.modality_list:
             modality_str = [i] + self.m.gen_modality_str_all(modality_set = [i])
             modality_str_with_index = {modality_str[i]: i for i in range(len(modality_str))}
             self.modality_index_list.append(modality_str_with_index)
-
         print('modality index list: ', self.modality_index_list)
 
         """ Self Attentions (Shrinkable) self1 """
@@ -116,8 +187,8 @@ class DynamicMULTModel(MULTModel):
         if len(self.modality_list) == 1:
             self.active_cross_output = self.modality_list
         super(DynamicMULTModel, self).__init__(
-            proj = self.proj, trans_mems0 = self.trans_mems0, trans = self.trans, trans_mems = self.trans_mems, 
-            proj1 = self.proj1, proj2 = self.proj2, out_layer = self.out_layer,
+            proj = self.proj, trans_mems0 = self.trans_mems0, trans = self.trans, translation = self.translation,
+            trans_mems = self.trans_mems, proj1 = self.proj1, proj2 = self.proj2, out_layer = self.out_layer,
             origin_dimensions = self.orig_dimensions, dimension = self.d, 
             num_heads = self.num_heads, head_dim = self.head_dim, layers_hybrid_attn = self.layers_hybrid_attn,
             layers_self_attn = self.layers_self_attn, attn_dropout = self.attn_dropout, 
@@ -132,7 +203,7 @@ class DynamicMULTModel(MULTModel):
             if mod2 == 0:
               attn_dropout = self.attn_dropout[mod1]
             else:
-              attn_dropout = 0
+              attn_dropout = 0.1
         else:
             embed_dim_in = int(self.combined_dim/self.modality_num)
             attn_dropout = self.attn_dropout[-1]
@@ -149,44 +220,61 @@ class DynamicMULTModel(MULTModel):
     
     def forward(self, x): 
         assert len(x) == self.modality_num # missing modality will be repalced by ones or zeros, can not be deleted
-        proj_x = [self.proj[i](x[i]) for i in self.active_modality]
-
-        proj_x = torch.stack(proj_x)
-        proj_x = proj_x.permute(0, 3, 1, 2)
+        proj_x = [self.proj[i](x[i]) for i in range(len(self.modality_list))]
+        proj_x = [p.permute(2, 0, 1) for p in proj_x]
 
         """ self attention of each modality"""
-        proj_x1 = {self.modality_list[self.active_modality[i]]: self.trans_mems0['mems0' + self.modality_list[self.active_modality[i]]](proj_x[i]) for i in range(len(self.active_modality))}
+        #proj_x1 = {self.modality_list[self.active_modality[i]]: self.trans_mems0['mems0' + self.modality_list[self.active_modality[i]]](proj_x[i]) for i in range(len(self.active_modality))}
+        proj_x1 = {self.modality_list[i]: self.trans_mems0['mems0' + self.modality_list[i]](proj_x[i]) for i in range(len(self.modality_list))}
+        
         h_ = proj_x1
         """ multi level cross attention """
         last_hs = []
         hs = []
         active_mask_output = []
+        
         for i in self.active_modality:
-            for modality_cross in self.active_cross[i]:
-                h_[modality_cross] = self.trans['cross' + modality_cross](h_[modality_cross[-1]], h_[modality_cross[:-1]], h_[modality_cross[:-1]])
-            h = torch.cat([h_[modality_cross] for modality_cross in self.active_cross_output[i]], dim = 2)
-            active_mask = []
-            for m_c in self.active_cross_output[i]:
-                index_cross = self.modality_index_list[i][m_c]
-                active_mask.extend(list(range(index_cross * self.d, (index_cross + 1) * self.d )))
-                active_mask_output.extend(list(range(
-                                      self.d * len(self.modality_index_list[i]) * i + index_cross * self.d, 
-                                      self.d * len(self.modality_index_list[i]) * i + (index_cross + 1) * self.d 
-                                      )))
-            active_mask = torch.tensor(active_mask).type(torch.IntTensor).to(next(self.parameters()).device)
-            """self attention in the highest level"""
-            h = self.trans_mems['mems' + self.modality_list[i]](h, active_mask = active_mask)
-            if self.all_steps:
-                hs.append(h)
-            else:
-                last_hs.append(h.mean(dim = 0))
-            
+            if self.active_cross_output[i] != []:
+                for modality_cross in self.active_cross[i]:
+                    h_[modality_cross] = self.trans['cross' + modality_cross](h_[modality_cross[-1]], h_[modality_cross[:-1]], h_[modality_cross[:-1]])
+                
+                h = torch.cat([h_[modality_cross] for modality_cross in self.active_cross_output[i]], dim = 2)
+                active_mask = []
+                for m_c in self.active_cross_output[i]:
+                    index_cross = self.modality_index_list[i][m_c]
+                    active_mask.extend(list(range(index_cross * self.d, (index_cross + 1) * self.d )))
+                    active_mask_output.extend(list(range(
+                                          self.d * len(self.modality_index_list[i]) * i + index_cross * self.d, 
+                                          self.d * len(self.modality_index_list[i]) * i + (index_cross + 1) * self.d 
+                                          )))
+                active_mask = torch.tensor(active_mask).type(torch.IntTensor).to(next(self.parameters()).device)
+                """self attention in the highest level"""
+                h = self.trans_mems['mems' + self.modality_list[i]](h, active_mask = active_mask)
+                if self.all_steps:
+                    hs.append(h)
+                else:
+                    last_hs.append(h[-1])
+        
+        """cross modality translation loss: Begin"""
+        translation_pair = []
+        """
+        active_modality_list = [self.modality_list[i] for i in self.active_modality]
+        if self.experiment_type == 'random_sample':
+            for k in self.translation.keys():
+                if len(k) > 12:
+                    if k[11:-1] in h_.keys() and k[-1] in h_.keys() and k[-1] in active_modality_list:
+                        translation_pair.append([k[11:], self.translation[k](h_[k[11:-1]]), h_[k[-1]]])"""
+        """cross modality translation loss: End"""
+        
+        """ save output """
         if self.all_steps:
             out = torch.cat(hs, dim=2)  # [seq_len, batch_size, out_features]
             out = out.permute(1, 0, 2)  # [batch_size, seq_len, out_features]
         else:
             out = torch.cat(last_hs, dim=1)
         active_indexes = torch.Tensor(active_mask_output).type(torch.IntTensor).to(next(self.parameters()).device)
+        
+        #print(active_mask_output)
         """ Concatenation layer"""   
         out_proj = self.proj2(
             F.dropout(
@@ -199,7 +287,7 @@ class DynamicMULTModel(MULTModel):
         )
         out_proj += out
         out = self.out_layer(out_proj, active_dim_in = None, active_dim_out = None, mask_in = active_indexes, mask_out = [None])
-        return out
+        return out, translation_pair
 
     def get_active_subnet(self, active_self_attn_layer_num, 
                           active_single_attn_layer_num:list,
@@ -362,8 +450,21 @@ class DynamicMULTModel(MULTModel):
             r = active_cross[i].copy()
             r = [self.modality_list[i]] + r
             active_cross_output[i] = gen_subnet(parent_set = r, p = p_cross_output)
+
+        """deal with extreme case: empty active_cross_output"""
+        for i in active_modality:  
             if not active_cross_output[i]:
-                active_cross_output[i] = [active_cross[i][0] if active_cross[i] else self.modality_list[i]]
+                flag = False
+                for j in active_modality:
+                    for a in active_cross_output[j]:
+                        if self.modality_list[i] in a:
+                          flag = True
+                          break
+                    if flag:
+                        break
+                if not flag:        
+                    active_cross_output[i] = [active_cross[i][0] if active_cross[i] else self.modality_list[i]]  
+
         return active_cross, active_cross_output
     
 """ !!!!!!!!!!!!!!!! Test Code !!!!!!!!!!!!!!!! """
@@ -428,9 +529,9 @@ if __name__ == '__main__':
                   result1 = s([x[i] for i in active_modality])
                   print(i_batch, result.mean().item(), result1.mean().item())
               loss = eval_metric(result, batch_Y.squeeze(-1).cuda())
-              '''loss.backward()
+              loss.backward()
               train_loss += loss.item()
-              optimizer.step()'''
+              optimizer.step()
               
               #print('reach 1')
               active_self_attn_layer_num = torch.randint(low = 1, high = layers_self_attn + 1, size = (1, ))[0].item()

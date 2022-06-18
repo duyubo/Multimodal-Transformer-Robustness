@@ -1,4 +1,6 @@
+from re import T
 import numpy as np
+from numpy.lib.index_tricks import index_exp
 from torch.utils.data.dataset import Dataset
 import pickle
 import os
@@ -18,20 +20,116 @@ from torchvision import transforms
 from PIL import Image
 import scipy
 import scipy.io as sio
+import h5py
+from torch.nn.utils.rnn import pad_sequence
+from transformers import *
+bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+def collate_fn_mosei(batch):
+    #sample 0: index, 1: text, 2: audio, 3: vision
+    # get the data out of the batch - use pad sequence util functions from PyTorch to pad things 
+    labels = torch.cat([sample[1] for sample in batch], dim = 0)
+    
+    SENT_LEN = 0
+    for sample in batch:
+        if len(sample[0][1]) > SENT_LEN:
+            SENT_LEN = len(sample[0][1])
+
+    visual = pad_sequence([torch.FloatTensor(sample[0][3]) for sample in batch])
+    acoustic = pad_sequence([torch.FloatTensor(sample[0][2]) for sample in batch])
+    # Create bert indices using tokenizer
+    bert_details = []
+    for sample in batch:
+        text = " ".join(sample[0][1])
+        encoded_bert_sent = bert_tokenizer.encode_plus(
+            text, add_special_tokens=True, padding='max_length') # , max_length=SENT_LEN+2
+        bert_details.append(encoded_bert_sent)
+
+    # Bert things are batch_first
+    bert_sentences = torch.LongTensor([sample["input_ids"] for sample in bert_details])
+    bert_sentence_types = torch.LongTensor([sample["token_type_ids"] for sample in bert_details])
+    bert_sentence_att_mask = torch.LongTensor([sample["attention_mask"] for sample in bert_details])
+    text = torch.stack([bert_sentences, bert_sentence_types, bert_sentence_att_mask])
+
+    return [0, text, acoustic.permute(1, 0, 2), visual.permute(1, 0, 2)], labels.unsqueeze(1)
+  
+"""New generated MOSEI dataset: """
+"""Under Test"""
+class MOSEI_Datasets(Dataset):
+    def __init__(self, dataset_path, split_type='train'):
+        super(MOSEI_Datasets, self).__init__()
+        if split_type == 'test':
+            dataset = []
+            for i in [11, 12, 13, 14, 18, 19]:
+                dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
+                dataset.extend(torch.load(dataset_p))
+        elif split_type == 'train':
+            dataset = []
+            for i in [1, 2, 3, 4, 5, 7, 8, 9, 10, 17]:
+                dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
+                dataset.extend(torch.load(dataset_p))
+        else:
+            dataset = []
+            for i in [15, 16]:
+                dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
+                dataset.extend(torch.load(dataset_p))
+        label_path = "/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data/CMU_MOSEI_Labels.csd"
+        
+        self.vision = [dataset[i][1] for i in range(len(dataset))] 
+        self.text = [dataset[i][-2] for i in range(len(dataset))] 
+        self.audio = [dataset[i][-1] for i in range(len(dataset))] 
+        self.name = [dataset[i][0] for i in range(len(dataset))]
+        
+        data_len = len(dataset)
+        labels = h5py.File(label_path)
+        self.labels = []
+        statis_label = []
+        for i in range(data_len):
+            name = self.name[i]
+            split_num = int(name[-2:]) 
+            file_name = name[:-3] 
+            l = np.array(labels[f"All Labels/data/{file_name}/features"])
+            self.labels.append(torch.tensor(l[split_num][0]).unsqueeze(0))
+            statis_label.append(l[split_num][0])
+
+        self.n_modalities = 3 # vision/ text/ audio
+        non_zeros = np.array([statis_label[i] for i in range(len(statis_label)) if statis_label[i] != 0])
+        print(statis_label)
+        print(split_type, len([i for i in non_zeros if i > 0])/len(non_zeros))
+        self.len = 50
+    def get_n_modalities(self):
+        return self.n_modalities
+    def get_seq_len(self):
+        return self.len
+    def get_dim(self):
+        return [768, 768, 768]
+    def get_lbl_info(self):
+        # return number_of_labels, label_dim
+        return self.labels.shape[1], self.labels.shape[2]
+    def __len__(self):
+        return len(self.name)
+    def __getitem__(self, index):
+        X = [index, 
+            self.text[index], 
+            self.audio[index].squeeze(), 
+            self.audio[index].squeeze()]
+        Y = self.labels[index]
+        return X, Y
 
 
 """Sentiment Analysis Dataset: MOSEI Dataset without BERT"""
-class CMUMOSEI_Datasets(Dataset):
+class CMOSEI_Datasets(Dataset):
     def __init__(self, dataset_path, split_type='train'):
         super(MOSEI_Datasets, self).__init__()
-        dataset_path = os.path.join(dataset_path, 'mosei_senti_data.pkl')
-        dataset = pickle.load(open(dataset_path, 'rb'))
+        dataset_p = os.path.join(dataset_path, 'mosei_raw.pkl')
+        dataset = pickle.load(open(dataset_p, 'rb'))
         self.vision = torch.tensor(dataset[split_type]['vision']).float()
         self.text = torch.tensor(dataset[split_type]['text']).float()
         self.audio = dataset[split_type]['audio']
         self.audio[self.audio == -np.inf] = 0
         self.audio = torch.tensor(self.audio).float()
-        self.labels = torch.tensor(dataset[split_type]['labels']).float()
+        self.labels = torch.tensor(dataset[split_type]['labels'][:, :, 0]).float().unsqueeze(-1)
+        print(dataset[split_type].keys())
         self.n_modalities = 3 # vision/ text/ audio
     def get_n_modalities(self):
         return self.n_modalities
@@ -46,11 +144,12 @@ class CMUMOSEI_Datasets(Dataset):
         return len(self.labels)
     def __getitem__(self, index):
         X = [index, self.text[index], self.audio[index], self.vision[index]]
+        
         Y = self.labels[index].squeeze(-1)
         return X, Y
 
 """Sentiment Analysis Dataset: MOSEI Dataset with BERT"""
-class MOSEI_Datasets(Dataset):
+class CMOSEI_Datasets(Dataset):
     def __init__(self, dataset_path, split_type='train'):
         super(MOSEI_Datasets, self).__init__()
         # same preprocessing as MSAF
@@ -84,6 +183,7 @@ class MOSEI_Datasets(Dataset):
         return len(self.labels)
     def __getitem__(self, index):
         X = [index, self.text[index], self.audio[index], self.vision[index]]
+         
         Y = self.labels[index]
         return X, Y
 
@@ -111,9 +211,12 @@ class avMNIST_Datasets(Dataset):
         l = self.image.shape[0]
         d = int(self.image.shape[1] ** 0.5)
         da = int(self.audio.shape[1])
-        self.image = self.image.reshape(l, n_patches, d//n_patches, n_patches, d//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)
+        self.image = self.image.reshape(l, d, d, 1).permute(0, 3, 1, 2)
+        self.audio = self.audio.reshape(l, da, da, 1).permute(0, 3, 1, 2)
+        #self.image = self.image.reshape(l, n_patches, d//n_patches, n_patches, d//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)
         #self.audio = self.audio.reshape(l, n_patches, da//n_patches, n_patches, da//n_patches).permute(0, 1, 3, 2, 4).reshape(l, n_patches **2, -1)  
-        self.audio = self.audio.reshape(l, n_patches ** 2, da//(n_patches ** 2), da).reshape(l, n_patches ** 2 , -1)  
+        #self.audio = self.audio.reshape(l, n_patches ** 2, da//(n_patches ** 2), da).reshape(l, n_patches ** 2 , -1)  
+        #self.audio = self.audio.reshape(l, n_patches ** 2, da//(n_patches ** 2), da).reshape(l, n_patches ** 2 , -1)
         self.n_modalities = 2 # vision/ audio
 
     def get_n_modalities(self):
@@ -123,7 +226,7 @@ class avMNIST_Datasets(Dataset):
         return self.image.shape[1]
 
     def get_dim(self):
-        return [self.image.shape[2], self.audio.shape[2]]
+        return [self.image.shape[2], self.audio.shape[2]]#image
 
     def get_lbl_info(self):
         # return number_of_labels, label_dim

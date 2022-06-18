@@ -71,6 +71,7 @@ class EvolutionSearch:
             efficiency = 0
             if efficiency <= self.latency_constraint:
                 return new_sample, efficiency
+    
     def get_acc(self, sample):
         self.model.set_active_modalities(
                   active_modality = self.active_modality,
@@ -78,6 +79,7 @@ class EvolutionSearch:
                   active_cross_output = copy.deepcopy(sample[1]))    
         acc = self.eval_model()
         return acc
+    
     """search"""
     def search(self):
         mutation_numbers = int(round(self.mutation_ratio * self.population_size))
@@ -141,7 +143,6 @@ class EvolutionSearch:
                     active_cross = active_code[0], 
                     active_cross_output = active_code[1])    
         acc = self.eval_model()
-        print(acc)
         acc = self.eval_model(test = True)
         return acc
         
@@ -159,7 +160,7 @@ class EvolutionSearch:
                 if hyp_params.use_cuda:
                     text, audio, vision, eval_attr = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda()   
                 preds = self.model([text, audio, vision]) #
-                results.append(preds.cpu().detach())
+                results.append(preds[0].cpu().detach())
                 truths.append(eval_attr.cpu().detach())
         results = torch.cat(results)
         truths = torch.cat(truths)
@@ -178,7 +179,7 @@ parser = argparse.ArgumentParser(description='MOSEI Sentiment Analysis')
 parser.add_argument('-f', default='', type=str)
 parser.add_argument('--dataset', type=str, default='mosei_senti',
                     help='dataset to use (default: mosei_senti)')
-parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data/MOSEI',
+parser.add_argument('--data_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data',
                     help='path for storing the dataset')
 parser.add_argument('--model_path', type=str, default='/content/drive/MyDrive/Colab_Notebooks/Multimodal-Transformer-Robustness/MULT-single-test.pt',
                     help='path for storing the models')
@@ -262,5 +263,18 @@ print(hyp_params.n_valid, hyp_params.n_test)
 if __name__ == '__main__':
     parent_model = torch.load(hyp_params.model_path)
     e = EvolutionSearch(parent_model, hyper_params = hyp_params, valid_loader = valid_loader, test_loader = test_loader)
-    best_selection = e.search()
-    #e.test_modality([[['tv'], ['at', 'av'], ['vt', 'vta']], [['t', 'tv'], ['a', 'av'], ['vt', 'vta']]])
+    #best_selection = e.search()
+    """full = [[['ta', 'tv', 'tav', 'tva'], ['at', 'av', 'atv', 'avt'], ['vt', 'va', 'vta', 'vat']], [['t', 'ta', 'tv', 'tav', 'tva'], ['a', 'at', 'av', 'atv', 'avt'], ['v', 'vt', 'va', 'vta', 'vat']]]
+    name = []
+    acc =[]
+    for i in range(len(full[1])):
+      for j in range(len(full[1][i])):
+        modality_str = copy.deepcopy(full)
+        modality_str[1][i].remove(full[1][i][j])
+        print(full[1][i][j], modality_str)
+        name.append(full[1][i][j])
+        acc.append(e.test_modality(modality_str))
+    print(name)
+    print(acc)"""
+    e.test_modality([[['iA'], []], [['i', 'iA'], []]])
+
