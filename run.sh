@@ -5,9 +5,9 @@ python3 main.py \
   --num_epochs 20\
   --lr 0.0001 \
   --when 120 \
-  --dimension 100\
-  --num_heads 4\
-  --head_dim 25\
+  --dimension 40\
+  --num_heads 8\
+  --head_dim 5\
   --layers_single_attn 3\
   --layers_self_attn 2\
   --batch_size 16\

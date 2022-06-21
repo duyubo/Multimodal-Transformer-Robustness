@@ -63,12 +63,12 @@ class MOSEI_Datasets(Dataset):
         super(MOSEI_Datasets, self).__init__()
         if split_type == 'test':
             dataset = []
-            for i in range(1, 19):
+            for i in range(1, 48):
                 dataset_p = os.path.join(dataset_path, f"processed_data_test{i*100}.pt")
                 dataset.extend(torch.load(dataset_p))
         elif split_type == 'train':
             dataset = []
-            for i in range(1, 164):
+            for i in range(1, 165):
                 dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
                 dataset.extend(torch.load(dataset_p))
         else:
