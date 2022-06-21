@@ -52,7 +52,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
 
         emb_c2 = torch.arange(embedding_dim, dtype=torch.int32)
 
-        emb = torch.exp((emb_c2 // 2).to(torch.float) * -emb_c1) # (embedding_dim,)
+        emb = torch.exp((torch.div(emb_c2, 2, rounding_mode='trunc')).to(torch.float) * -emb_c1) # (embedding_dim,)
         emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0) # (num_emb, embedding_dim)
         
         # assign sinusoidal positional embedding to correct positions 
