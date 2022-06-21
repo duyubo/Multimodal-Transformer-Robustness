@@ -1,0 +1,16 @@
+python3 main.py \
+  --dataset mosei_senti\
+  --attn_dropout 0.1 0.1 0.0 0.0 \
+  --modality_pool 2\
+  --num_epochs 20\
+  --lr 0.0001 \
+  --when 120 \
+  --dimension 100\
+  --num_heads 4\
+  --head_dim 25\
+  --layers_single_attn 3\
+  --layers_self_attn 2\
+  --batch_size 16\
+  --experiment_type test_single\
+  --data_path /data/dataset/MOSEI/processed/all \
+  --model_path /home/yubo/Multimodal-Transformer-Robustness/model.pt

@@ -78,23 +78,20 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         num_batches = hyp_params.n_train // hyp_params.batch_size
         proc_loss, proc_size = 0, 0
         start_time = time.time()
-        for i_batch, (batch_X, batch_Y) in enumerate(train_loader): 
+        i_batch = 0
+        for batch_X, batch_Y in train_loader:
             inputs = batch_X[1:]
             eval_attr = batch_Y
             model.zero_grad()
             if hyp_params.use_cuda:
                 with torch.cuda.device(0):
                     inputs = [i.cuda() for i in inputs]
-                    eval_attr = eval_attr.cuda()     
+                    eval_attr = eval_attr.cuda()
+
             batch_size = inputs[0].size(0)  
             preds, translation_pair = model(inputs)
             #print(preds.shape, eval_attr.shape)
-            raw_loss = criterion(preds, eval_attr)
-            """Extra loss for extracting information across modalities"""
-            if hyp_params.experiment_type == 'random_sample':
-                for pair in translation_pair:
-                    raw_loss += translation_loss(pair[1], pair[2].data) 
-                   
+            raw_loss = criterion(preds, eval_attr)  
             """ set up active part """
             if hyp_params.experiment_type == 'random_sample':
                 active_modality = hyp_params.modality_pool[torch.randint(low=0, high = len(hyp_params.modality_pool), size = (1, ))[0].item()]
@@ -187,6 +184,12 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             proc_loss += raw_loss.item() * batch_size
             proc_size += batch_size
             epoch_loss += raw_loss.item() * batch_size
+            raw_loss.detach()
+
+            del inputs
+            torch.cuda.empty_cache()
+
+            i_batch += 1
             if i_batch % hyp_params.log_interval == 0 and i_batch > 0:
                 avg_loss = proc_loss / proc_size
                 elapsed_time = time.time() - start_time
@@ -215,6 +218,10 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 preds, _ = model([inputs[i] if ( i in activate_modality) else (torch.zeros(inputs[i].size()).cuda()) for i in range(len(inputs))])
                 results.append(preds.cpu().detach())
                 truths.append(eval_attr.cpu().detach())
+                del inputs
+                torch.cuda.empty_cache()
+                
+
         results = torch.cat(results)
         truths = torch.cat(truths)
         if hyp_params.dataset == 'avmnist':
@@ -427,6 +434,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         print("}")
 
     best_valid = -1e8
+    training_curve = []
     time_total_start = time.time()
     for epoch in range(1, hyp_params.num_epochs + 1):# 1, hyp_params.num_epochs + 1
         start = time.time()
@@ -489,7 +497,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             val_acc = val_acc1
         test_acc, _, _ = evaluate(model, criterion, activate_modality = list(range(len(hyp_params.modality_set))), test=True)
         
-        
+        training_curve.append([val_acc, test_acc])
         duration = end - start
         scheduler.step(1-val_acc)# Decay learning rate by validation loss
 
@@ -506,15 +514,16 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
 
     time_total_end = time.time()
     print(time_total_end - time_total_start)
+    print(training_curve)
     #model = torch.load(hyp_params.model_path)
     """test effects of replacing translation header"""
-    new_model = torch.load(hyp_params.model_path)
+    """new_model = torch.load(hyp_params.model_path)
     for param_tensor in model.state_dict():
           model.state_dict()[param_tensor].copy_(new_model.state_dict()[param_tensor])
     if hyp_params.experiment_type == 'baseline_ia':
         masking_inputs(model, hyp_params)
     else:
         test_missing_modality(model, hyp_params)
-
+    """
     
 

@@ -43,7 +43,7 @@ class BertTextEncoder(nn.Module):
     def __init__(self):
         super(BertTextEncoder, self).__init__()
         model_class = BertModel
-        self.model = model_class.from_pretrained('/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data/pretrained_berts/bert_en')
+        self.model = model_class.from_pretrained('/home/yubo/Multimodal-Transformer-Robustness/bert_en')
 
     def forward(self, text):
         input_ids, input_mask, segment_ids = text[0].long(), text[1].float(), text[2].long()
@@ -51,6 +51,7 @@ class BertTextEncoder(nn.Module):
             last_hidden_states = self.model(input_ids=input_ids,
                                             attention_mask=input_mask,
                                             token_type_ids=segment_ids)[0]  # Models outputs are now tuples
+        #print('last hidden states: ', last_hidden_states)
         return last_hidden_states
 
 

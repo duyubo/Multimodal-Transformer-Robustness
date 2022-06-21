@@ -23,34 +23,37 @@ import scipy.io as sio
 import h5py
 from torch.nn.utils.rnn import pad_sequence
 from transformers import *
-bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+bert_tokenizer = BertTokenizer.from_pretrained('/home/yubo/Multimodal-Transformer-Robustness/bert_en', do_lower_case=True)
 
 def collate_fn_mosei(batch):
     #sample 0: index, 1: text, 2: audio, 3: vision
     # get the data out of the batch - use pad sequence util functions from PyTorch to pad things 
-    labels = torch.cat([sample[1] for sample in batch], dim = 0)
-    
+
+    labels = torch.cat([sample[1] for sample in batch], dim = 0) 
+    visual = pad_sequence([torch.FloatTensor(sample[0][3].cpu()) for sample in batch])
+    acoustic = pad_sequence([torch.FloatTensor(sample[0][2].cpu()) for sample in batch])
+    #print(visual.shape, batch[0][0][3].shape, batch[1][0][3].shape)
     SENT_LEN = 0
     for sample in batch:
         if len(sample[0][1]) > SENT_LEN:
-            SENT_LEN = len(sample[0][1])
-
-    visual = pad_sequence([torch.FloatTensor(sample[0][3]) for sample in batch])
-    acoustic = pad_sequence([torch.FloatTensor(sample[0][2]) for sample in batch])
+             SENT_LEN = len(sample[0][1])
     # Create bert indices using tokenizer
     bert_details = []
     for sample in batch:
         text = " ".join(sample[0][1])
         encoded_bert_sent = bert_tokenizer.encode_plus(
-            text, add_special_tokens=True, padding='max_length') # , max_length=SENT_LEN+2
+            text, add_special_tokens=True, max_length=SENT_LEN+2,  pad_to_max_length=True) # , max_length=SENT_LEN+2
+        
         bert_details.append(encoded_bert_sent)
 
     # Bert things are batch_first
+    
     bert_sentences = torch.LongTensor([sample["input_ids"] for sample in bert_details])
     bert_sentence_types = torch.LongTensor([sample["token_type_ids"] for sample in bert_details])
     bert_sentence_att_mask = torch.LongTensor([sample["attention_mask"] for sample in bert_details])
+    
     text = torch.stack([bert_sentences, bert_sentence_types, bert_sentence_att_mask])
-
+    #text = bert_sentences
     return [0, text, acoustic.permute(1, 0, 2), visual.permute(1, 0, 2)], labels.unsqueeze(1)
   
 """New generated MOSEI dataset: """
@@ -60,41 +63,44 @@ class MOSEI_Datasets(Dataset):
         super(MOSEI_Datasets, self).__init__()
         if split_type == 'test':
             dataset = []
-            for i in [11, 12, 13, 14, 18, 19]:
-                dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
+            for i in range(1, 19):
+                dataset_p = os.path.join(dataset_path, f"processed_data_test{i*100}.pt")
                 dataset.extend(torch.load(dataset_p))
         elif split_type == 'train':
             dataset = []
-            for i in [1, 2, 3, 4, 5, 7, 8, 9, 10, 17]:
+            for i in range(1, 164):
                 dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
                 dataset.extend(torch.load(dataset_p))
         else:
             dataset = []
-            for i in [15, 16]:
-                dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
+            for i in range(1, 20):
+                dataset_p = os.path.join(dataset_path, f"processed_data_valid{i*100}.pt")
                 dataset.extend(torch.load(dataset_p))
-        label_path = "/content/drive/MyDrive/Colab_Notebooks/MultiBench-main/data/CMU_MOSEI_Labels.csd"
-        
-        self.vision = [dataset[i][1] for i in range(len(dataset))] 
+        self.vision = []
+        for i in range(len(dataset)):
+            if type(dataset[i][2]) == list:
+                if dataset[i][2] == []:
+                    vision = torch.zeros(1, 1, 512)
+                else:
+                    vision = torch.stack(dataset[i][2])
+            else:
+                vision = dataset[i][2]
+            #print(vision.shape)
+            reshape_size = vision.shape[0]//4 if vision.shape[0]//4 > 50 else 50
+            vision = torch.nn.functional.interpolate(vision.reshape(1, vision.shape[0], 512).permute(0, 2, 1), size = (reshape_size)).permute(0, 2, 1).reshape(reshape_size, 512)
+            #print(vision.shape)
+            self.vision.append(vision)
+
+        #self.vision = [dataset[i][2] for i in range(len(dataset))]
+
         self.text = [dataset[i][-2] for i in range(len(dataset))] 
+
         self.audio = [dataset[i][-1] for i in range(len(dataset))] 
         self.name = [dataset[i][0] for i in range(len(dataset))]
-        
-        data_len = len(dataset)
-        labels = h5py.File(label_path)
-        self.labels = []
-        statis_label = []
-        for i in range(data_len):
-            name = self.name[i]
-            split_num = int(name[-2:]) 
-            file_name = name[:-3] 
-            l = np.array(labels[f"All Labels/data/{file_name}/features"])
-            self.labels.append(torch.tensor(l[split_num][0]).unsqueeze(0))
-            statis_label.append(l[split_num][0])
+        self.labels = torch.tensor([dataset[i][1] for i in range(len(dataset))])
 
         self.n_modalities = 3 # vision/ text/ audio
-        non_zeros = np.array([statis_label[i] for i in range(len(statis_label)) if statis_label[i] != 0])
-        print(statis_label)
+        non_zeros = np.array([self.labels[i] for i in range(len(self.labels)) if self.labels[i] != 0])
         print(split_type, len([i for i in non_zeros if i > 0])/len(non_zeros))
         self.len = 50
     def get_n_modalities(self):
@@ -102,7 +108,7 @@ class MOSEI_Datasets(Dataset):
     def get_seq_len(self):
         return self.len
     def get_dim(self):
-        return [768, 768, 768]
+        return [768, 768, 512]
     def get_lbl_info(self):
         # return number_of_labels, label_dim
         return self.labels.shape[1], self.labels.shape[2]
@@ -112,8 +118,9 @@ class MOSEI_Datasets(Dataset):
         X = [index, 
             self.text[index], 
             self.audio[index].squeeze(), 
-            self.audio[index].squeeze()]
-        Y = self.labels[index]
+            self.vision[index].squeeze(1)]
+        
+        Y = self.labels[index].unsqueeze(-1)
         return X, Y
 
 
