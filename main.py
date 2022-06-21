@@ -105,7 +105,7 @@ criterion_dict = {
 }
 
 batch_sizes = {
-    'mosei_senti':  256 * 2,
+    'mosei_senti':  16,
     'avmnist':   128 * 4, 
     'mojupush': 128 * 4,
     'enrico': 128 * 4,
