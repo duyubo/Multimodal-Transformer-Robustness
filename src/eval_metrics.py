@@ -15,7 +15,7 @@ def multiclass_acc_eval(preds, truths):
     return np.sum(np.round(results) == np.round(truths)) / float(len(truths))
 
 def binary_acc(results, truths, exclude_zero=True):
-    test_preds = results.view(-1).numpy()#.cpu().detach()
+    test_preds = results.view(-1).numpy()
     test_truth = truths.view(-1).numpy()
     non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0 or (not exclude_zero)])
     binary_truth = (test_truth[non_zeros] > 0)

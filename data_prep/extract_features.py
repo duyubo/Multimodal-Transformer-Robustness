@@ -57,24 +57,26 @@ audio_dir = '/data/dataset/MOSEI/processed/audio'
 video_dir = '/data/dataset/MOSEI/processed/video'
 
 split_type = 'train'
-labels = pd.read_excel(f"/home/yubo/data_prep/raw_data/{split_type}.xlsx")
+labels = pd.read_excel(f"./{split_type}.xlsx")
 labels = labels.rename(columns={0: 'name', 1: 'sentiment'})
 print(labels) 
 processed_data = []
 
 
-for i in range(0, 2002):
+for i in range(2001, len(labels)):
     name = labels.iloc[i]['name']
     print(i, name)
-    features, transcript = extract_audio_features(audio_dir, name, model, decoder, bert_tz)
+    #features, transcript = extract_audio_features(audio_dir, name, model, decoder, bert_tz)
     v_feature = extract_vision_features(video_dir, name, mtcnn, resnet)
-    #print(v_feature)
-    processed_data.append([name, labels.iloc[i]['sentiment'], v_feature if v_feature != [] else [], transcript, features[-1]])
-    
+    if v_feature == []:
+        print(name, 'vision feature is empty!!!')
+    #processed_data.append([name, labels.iloc[i]['sentiment'], v_feature if v_feature != [] else [], transcript, features[-1]])
+    processed_data.append([name, labels.iloc[i]['sentiment'], v_feature if v_feature != [] else []])
+
     if i%100 == 0:
-        torch.save(processed_data,f"/data/dataset/MOSEI/processed/all/processed_data_{split_type}{i}.pt")
+        torch.save(processed_data,f"/data/dataset/MOSEI/processed/all/processed_data_vision_{split_type}{i}.pt")
         processed_data = []    
 
-torch.save(processed_data,f"/data/dataset/MOSEI/processed/all/processed_data_{split_type}{i}.pt")
+torch.save(processed_data,f"/data/dataset/MOSEI/processed/all/processed_data_vision_{split_type}{i}.pt")
 
 

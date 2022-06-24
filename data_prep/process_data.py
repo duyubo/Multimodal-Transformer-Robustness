@@ -12,6 +12,7 @@ from std_folder import standard_train_fold, standard_valid_fold, standard_test_f
 import torch
 from os.path import exists
 import pandas as pd
+import cv2
 
 def ffmpeg_extract_subclip(filename, t1, t2, targetname=None):
     """ Makes a new video file playing video file ``filename`` between
@@ -44,12 +45,7 @@ def process(dataset, video_dir, video_dir_new, resample_dir, resample_dir_new, n
             audio, _ = soundfile.read(fid)
         labels = []  
         for i in range(len(intervals)):
-            newname = f"{name}_{i:02d}"
-            """split vidoe file"""
-            starttime = intervals[i][0] if intervals[i][0] >= 0 else 0
-            endtime = intervals[i][1] if intervals[i][1] >= 0 else 0
-            """save video file"""
-            ffmpeg_extract_subclip(required_video_file, starttime, endtime, targetname=video_dir_new + '/' + newname + ".mp4")
+            newname = f"{name}_{i:02d}"   
             """split audio file"""
             interval_i = 16000 * intervals[i]
             interval_i = np.array([interval_i[0] if interval_i[0] >= 0 else 0, interval_i[1] if interval_i[1] >= 0 else 0]).astype(int)
@@ -58,6 +54,31 @@ def process(dataset, video_dir, video_dir_new, resample_dir, resample_dir_new, n
             with open(resample_dir_new + '/' + (newname + ".wav"), "wb") as fid:
                 soundfile.write(fid, segment, 16000)
             labels.append([newname, features[i][0]])
+
+        # split videos
+        cap = cv2.VideoCapture(required_video_file)
+        ret, frame = cap.read()
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))  
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc('m','p','4','v')    
+        video_clips  = [cv2.VideoWriter(filename= f"{video_dir_new}/{name}_{i:02d}.mp4", fourcc = fourcc, fps = 30, frameSize=(w, h), isColor = True) for i in range(len(intervals))]
+        intervals = intervals * 30
+        f = 0
+        while ret:
+            flag = 0
+            for i in range(len(intervals)):
+                if intervals[i][0] - 1  <= f <= intervals[i][1] + 1:
+                    video_clips[i].write(frame)
+                elif f > intervals[i][1]:
+                    flag += 1
+            if flag == len(intervals):
+                break
+            ret, frame = cap.read()
+            f += 1
+
+        for writer in video_clips:
+            writer.release()
+        cap.release()
         return labels
 
 if __name__ == "__main__": 
@@ -74,7 +95,7 @@ if __name__ == "__main__":
     labels_train = []
     labels_valid = []
     labels_test = []
-
+    
     for train_name in standard_train_fold:
         if train_name in names:
             labels_train.extend(process(dataset, video_dir, video_dir_new, resample_dir, resample_dir_new, train_name))

@@ -65,42 +65,49 @@ class MOSEI_Datasets(Dataset):
             dataset = []
             for i in range(1, 48):
                 dataset_p = os.path.join(dataset_path, f"processed_data_test{i*100}.pt")
-                dataset.extend(torch.load(dataset_p))
+                dataset.extend(torch.load(dataset_p, map_location='cpu'))
         elif split_type == 'train':
             dataset = []
             for i in range(1, 165):
                 dataset_p = os.path.join(dataset_path, f"processed_data_train{i*100}.pt")
-                dataset.extend(torch.load(dataset_p))
+                dataset.extend(torch.load(dataset_p, map_location='cpu'))
         else:
             dataset = []
             for i in range(1, 20):
                 dataset_p = os.path.join(dataset_path, f"processed_data_valid{i*100}.pt")
-                dataset.extend(torch.load(dataset_p))
+                dataset.extend(torch.load(dataset_p, map_location='cpu'))
         self.vision = []
+        print("!!!!!!!!!!!!!!!!!!!!!!!", split_type)
+        empty_list = []
+        count = 0
         for i in range(len(dataset)):
             if type(dataset[i][2]) == list:
                 if dataset[i][2] == []:
+                    print(dataset[i][0])
+                    count += 1
+                    empty_list.append(i)
                     vision = torch.zeros(1, 1, 512)
                 else:
                     vision = torch.stack(dataset[i][2])
             else:
                 vision = dataset[i][2]
             #print(vision.shape)
-            reshape_size = vision.shape[0]//4 if vision.shape[0]//4 > 50 else 50
-            vision = torch.nn.functional.interpolate(vision.reshape(1, vision.shape[0], 512).permute(0, 2, 1), size = (reshape_size)).permute(0, 2, 1).reshape(reshape_size, 512)
+            #reshape_size = vision.shape[0]//4 if vision.shape[0]//4 > 50 else 50
+            #vision = torch.nn.functional.interpolate(vision.reshape(1, vision.shape[0], 512).permute(0, 2, 1), size = (reshape_size)).permute(0, 2, 1).reshape(reshape_size, 512)
             #print(vision.shape)
             self.vision.append(vision)
-
+        print(count)
         #self.vision = [dataset[i][2] for i in range(len(dataset))]
 
-        self.text = [dataset[i][-2] for i in range(len(dataset))] 
+        self.text = [dataset[i][-2] for i in range(len(dataset)) if not i in empty_list] 
 
-        self.audio = [dataset[i][-1] for i in range(len(dataset))] 
-        self.name = [dataset[i][0] for i in range(len(dataset))]
-        self.labels = torch.tensor([dataset[i][1] for i in range(len(dataset))])
+        self.audio = [dataset[i][-1] for i in range(len(dataset)) if not i in empty_list] 
+        self.name = [dataset[i][0] for i in range(len(dataset)) if not i in empty_list]
+        self.labels = torch.tensor([dataset[i][1] for i in range(len(dataset)) if not i in empty_list])
 
         self.n_modalities = 3 # vision/ text/ audio
         non_zeros = np.array([self.labels[i] for i in range(len(self.labels)) if self.labels[i] != 0])
+
         print(split_type, len([i for i in non_zeros if i > 0])/len(non_zeros))
         self.len = 50
     def get_n_modalities(self):
