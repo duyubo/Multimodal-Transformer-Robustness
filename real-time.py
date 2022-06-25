@@ -1,18 +1,16 @@
 import torch
 import numpy as np
 import cv2
-import torchaudio
 from transformers import BertTokenizer
 from facenet_pytorch import MTCNN, InceptionResnetV1
 import time
 from torch.profiler import profile, record_function, ProfilerActivity
-import matplotlib.pyplot as plt
 import torch
 from src.dynamic_models2 import *
-from src.utils import *
-import numpy as np
 torch.manual_seed(0)
 from torchsummary import summary
+#import torchaudio
+
 
 def face_detection(img, face_detection_model):
     img_cropped = face_detection_model(img)
@@ -138,9 +136,10 @@ def Squential_Pipeline(video_path, audio_path, dynamic_model_path, hyp_params):
     
     print(Sentiment)
 
+
 hyp_params1 = hyp_params()
-Squential_Pipeline(video_path = '/data/dataset/MOSEI/processed/video/_0efYOjQYRc_00.mp4', 
-                   audio_path = '/data/dataset/MOSEI/processed/audio/_0efYOjQYRc_00.wav', 
+Squential_Pipeline(video_path = './_0efYOjQYRc_00.mp4', 
+                   audio_path = './_0efYOjQYRc_00.wav', 
                    dynamic_model_path = 'model.pt',
                    hyp_params = hyp_params1)
 

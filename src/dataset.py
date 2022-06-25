@@ -6,8 +6,6 @@ import pickle
 import os
 from scipy import signal
 import torch
-import fannypack
-import fannypack as fp
 import numpy as np
 import sys
 from src.data_utils import *
