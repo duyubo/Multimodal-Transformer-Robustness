@@ -11,6 +11,8 @@ from src.models2 import  *
 from modules.dynamic_layers import DynamicLinear, DynamicLayerNorm
 from transformers import BertTokenizer, BertModel, BertConfig
 
+import time
+
 class Transpose(nn.Module):
     """Custom transpose module for easier Sequential usage."""
     def __init__(self, dim0, dim1):
@@ -43,14 +45,17 @@ class BertTextEncoder(nn.Module):
     def __init__(self):
         super(BertTextEncoder, self).__init__()
         model_class = BertModel
-        self.model = model_class.from_pretrained('../bert_en')
+        self.model = model_class.from_pretrained('/home/yubo/Desktop/Multimodal-Transformer-Robustness/bert_en')
 
     def forward(self, text):
         input_ids, input_mask, segment_ids = text[0].long(), text[1].float(), text[2].long()
         with torch.no_grad():
+            start = time.time()
             last_hidden_states = self.model(input_ids=input_ids,
                                             attention_mask=input_mask,
                                             token_type_ids=segment_ids)[0]  # Models outputs are now tuples
+            end = time.time()
+            #print('time for BERT word embedding: ', end - start)
         #print('last hidden states: ', last_hidden_states)
         return last_hidden_states
 

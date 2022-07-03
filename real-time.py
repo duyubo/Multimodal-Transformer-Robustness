@@ -9,29 +9,39 @@ import torch
 from src.dynamic_models2 import *
 torch.manual_seed(0)
 from torchsummary import summary
-#import torchaudio
+import torchaudio
 
 
 def face_detection(img, face_detection_model):
     img_cropped = face_detection_model(img)
     return img_cropped
-
 def face_feature_extraction(face_img, feature_extraction_model):
     face_embedding = feature_extraction_model(face_img.unsqueeze(0))
-
     return face_embedding
 
 def face_pipeline(face_detection_model, feature_extraction_model, video_path):
     cap = cv2.VideoCapture(video_path)
     success, img = cap.read()
     face_features = []
+    counter = 0
+    timer1 = 0
+    timer2 = 0
     while success:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        face_img = face_detection(img = img, face_detection_model = face_detection_model)
-        if face_img is not None:
-            face_embedding = face_feature_extraction(face_img = face_img, feature_extraction_model = feature_extraction_model)
-            face_features.append(face_embedding)
+        if counter%10 == 0:
+            #img = cv2.resize(img, (480, 854))
+            start = time.time()
+            face_img = face_detection(img = img, face_detection_model = face_detection_model)
+            end = time.time()
+            timer1 += end - start
+            if face_img is not None:
+                start = time.time()
+                face_embedding = face_feature_extraction(face_img = face_img.cuda(), feature_extraction_model = feature_extraction_model)
+                end = time.time()
+                timer2 += end - start
+                face_features.append(face_embedding)
         success, img = cap.read()  
+        counter += 1
+    print('mtcnn time: ', timer1, 'feature extraction time: ', timer2)
     if face_features != []:
         face_features = torch.stack(face_features, dim = 0).permute(1, 0, 2)
     return face_features
@@ -39,14 +49,18 @@ def face_pipeline(face_detection_model, feature_extraction_model, video_path):
 def audio_pipeline(bundle, model, decoder, audio_path, sample_rate): 
     waveform, sample_rate = torchaudio.load(audio_path)
     start = time.time()
-    waveform = torchaudio.functional.resample(waveform, sample_rate, bundle.sample_rate)
+    print(waveform.shape)
+    waveform = torchaudio.functional.resample(waveform, sample_rate, bundle.sample_rate).cuda()
     with torch.inference_mode():
         x, lengths = model.feature_extractor(waveform, length = None)
         features = model.encoder.extract_features(x, lengths, 12)
         end = time.time()
-        end - start
+        print('wavw2vec time: ', end - start)
+        start = time.time()
         emission = model.aux(features[-1]) 
     transcript = decoder(emission[0]).lower().split("|")
+    end = time.time()
+    print('ctcdecoder time: ', end - start)
     return features[-1], transcript
 
 class GreedyCTCDecoder(torch.nn.Module):
@@ -81,15 +95,16 @@ class hyp_params():
 
 def Squential_Pipeline(video_path, audio_path, dynamic_model_path, hyp_params):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("!!!!!!!!!!!loading models!!!!!!!!!!!!!!!!")
     # audio feature extraction
     bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
-    model = bundle.get_model().eval()
+    model = bundle.get_model().eval().cuda()
     #audio feature to text
-    decoder = GreedyCTCDecoder(labels=bundle.get_labels()).eval()
+    decoder = GreedyCTCDecoder(labels=bundle.get_labels()).eval().cuda()
     #face detection
-    mtcnn = MTCNN(select_largest=True).eval() 
+    mtcnn = MTCNN(select_largest=True, device = 'cuda').eval() 
     #face feature extraction
-    resnet = InceptionResnetV1(pretrained='vggface2').eval()
+    resnet = InceptionResnetV1(pretrained='vggface2').eval().cuda()
     #Bert Tokenizer
     bert_tokenizer = BertTokenizer.from_pretrained('./bert_en')
     #dynamic multimodal 
@@ -106,15 +121,24 @@ def Squential_Pipeline(video_path, audio_path, dynamic_model_path, hyp_params):
             padding = 0, 
             kernel_size = 0, 
             experiment_type = hyp_params.experiment_type
-        )
+        ).cuda()
     
 
     # feature extractions
+    print('Extracting face embeddings!!!')
+    start = time.time()
     face_features = face_pipeline(face_detection_model = mtcnn, feature_extraction_model = resnet, video_path = video_path)
+    end = time.time()
+    print('time for face preprocessing:', end - start)
+    print('Extracting audio features!!!!!')
+    start = time.time()
     audio_features, transcript = audio_pipeline(bundle = bundle, model = model, sample_rate = 16000, decoder = decoder, audio_path = audio_path)
+    end = time.time()
+    print('time for audio processing:', end - start)
     print(transcript)
 
     # get word embedding
+    start = time.time()
     text = " ".join(transcript)
     encoded_bert_sent = bert_tokenizer.encode_plus(
             text, add_special_tokens=True, 
@@ -125,21 +149,26 @@ def Squential_Pipeline(video_path, audio_path, dynamic_model_path, hyp_params):
     bert_sentence_types = torch.LongTensor([encoded_bert_sent["token_type_ids"]])
     bert_sentence_att_mask = torch.LongTensor([encoded_bert_sent["attention_mask"]])
     text = torch.stack([bert_sentences, bert_sentence_types, bert_sentence_att_mask])
+    end = time.time()
+    print('Bert Tokenizer time: ', end - start)
     """
     # load from pretrained model
     Dynamic_Multimodal_trained = torch.load(dynamic_model_path, map_location='cpu')
     model.load_state_dict(Dynamic_Multimodal_trained.state_dict())
     """
     #predict sentiment
+    start = time.time()
+    face_features = torch.zeros(1, 10, 512).cuda()
+    text = text.cuda()
     with torch.no_grad():
         Sentiment, _ = dynamic_model([text, audio_features, face_features])
-    
     print(Sentiment)
-
+    end = time.time()
+    print('time for multimodality learning: ', end-start)
 
 hyp_params1 = hyp_params()
 Squential_Pipeline(video_path = './_0efYOjQYRc_00.mp4', 
-                   audio_path = './_0efYOjQYRc_00.wav', 
+                   audio_path = './cap.wav', 
                    dynamic_model_path = 'model.pt',
                    hyp_params = hyp_params1)
 
