@@ -265,7 +265,7 @@ class TranscriptTranslation():
                         """
                         if active_modality:
                             self.sentiment_model.set_active_modalities(active_modality = active_modality, active_cross = active_cross, active_cross_output = active_cross_output)
-                            sentiment_value, _ = self.sentiment_model([text_input.cuda(), features.cuda(), face_input.cuda()])
+                            sentiment_value, _ = self.sentiment_model([text_input.cuda(), features.cuda(), torch.zeros(1, 2, 512).cuda()])
                             sentiment_value = sentiment_value.item()
                         
                             if face_embeddings != []:
@@ -395,7 +395,7 @@ class VideoRecorder():
         text_color = (255, 255, 255)
         thickness = 3
         margin = 4
-        pos = (20, 500)
+        pos = (20, 460)
         bg_color = (0, 0, 0)
         peace_img = cv2.imread("peace.jpeg")
         smile_img = cv2.imread("smile.jpg")
@@ -411,17 +411,33 @@ class VideoRecorder():
             ret, video_frame = self.video_cap.read()
             screen = video_frame
             if ret:
-                self.frame_counts += 1
+                self.frame_counts += 1 
                 text = transcript
                 txt_size = cv2.getTextSize(text, font_face, scale, thickness)
                 end_x = pos[0] + txt_size[0][0] + margin
                 end_y = pos[1] - txt_size[0][1] - margin
-                cv2.rectangle(video_frame, pos, (end_x, end_y), bg_color, -1)
-                cv2.putText(video_frame, text, pos, font_face, scale, text_color, 1, 2)
+                if end_x < 700:
+                    cv2.rectangle(video_frame, pos, (end_x, end_y), bg_color, -1)
+                    cv2.putText(video_frame, text, pos, font_face, scale, text_color, 1, 2)
+                else:
+                    #print('read here!!!')
+                    text = transcript[ :int(len(text)/2)]
+                    txt_size = cv2.getTextSize(text, font_face, scale, thickness)
+                    end_x = pos[0] + txt_size[0][0] + margin
+                    end_y = pos[1] - txt_size[0][1] - margin
+                    cv2.rectangle(video_frame, pos, (end_x, end_y), bg_color, -1)
+                    cv2.putText(video_frame, text, pos, font_face, scale, text_color, 1, 2)
+
+                    text = transcript[int(len(text)/2): ]
+                    txt_size = cv2.getTextSize(text, font_face, scale, thickness)
+                    end_x = pos[0] + txt_size[0][0] + margin
+                    end_y = pos[1] - txt_size[0][1] - margin + 40
+                    cv2.rectangle(video_frame, (pos[0], pos[1] + 40), (end_x, end_y), bg_color, -1)
+                    cv2.putText(video_frame, text, (pos[0], pos[1] + 40), font_face, scale, text_color, 1, 2)
                 
                 if sentiment_value > 0.5:
                     face = smile_img
-                elif sentiment_value < -0:
+                elif sentiment_value < -0.3:
                     face = emo_img
                 else:
                     face = peace_img
