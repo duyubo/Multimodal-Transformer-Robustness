@@ -201,6 +201,7 @@ class TranscriptTranslation():
                     waveform_temp = torch.tensor(waveform).reshape(1, -1).to(torch.float32)
                     temp_length = waveform_temp.shape[1]
                     if temp_length > wave_length + pipeline_interval:
+                        text = []
                         wave_length += pipeline_interval
                         if temp_length > translate_length + translate_interval * 5:
                             translate_length = temp_length - translate_interval
