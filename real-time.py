@@ -21,46 +21,70 @@ def face_feature_extraction(face_img, feature_extraction_model):
 
 def face_pipeline(face_detection_model, feature_extraction_model, video_path):
     cap = cv2.VideoCapture(video_path)
+    print(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    print(cap.get(cv2.CAP_PROP_FPS))
     success, img = cap.read()
     face_features = []
     counter = 0
     timer1 = 0
     timer2 = 0
+    start_all = None
+    timer1_list = []
+    timer2_list = []
     while success:
-        if counter%10 == 0:
-            #img = cv2.resize(img, (480, 854))
+        if counter == 1:
+            start_all = time.time()
+        if counter%30 == 0:
             start = time.time()
             face_img = face_detection(img = img, face_detection_model = face_detection_model)
             end = time.time()
-            timer1 += end - start
+            if counter >= 1:
+                timer1 += end - start
+                timer1_list.append(end - start)
+            start = time.time()
             if face_img is not None:
-                start = time.time()
                 face_embedding = face_feature_extraction(face_img = face_img.cuda(), feature_extraction_model = feature_extraction_model)
-                end = time.time()
-                timer2 += end - start
                 face_features.append(face_embedding)
+            end = time.time()
+            if counter >= 1:
+                timer2 += end - start
+                timer2_list.append(end - start)
         success, img = cap.read()  
         counter += 1
     print('mtcnn time: ', timer1, 'feature extraction time: ', timer2)
+    end_all = time.time()
+    print('time for face preprocessing:', end_all - start_all)
     if face_features != []:
         face_features = torch.stack(face_features, dim = 0).permute(1, 0, 2)
+    print('mtcnn', timer1_list, 'feature extraction', timer2_list)
     return face_features
 
 def audio_pipeline(bundle, model, decoder, audio_path, sample_rate): 
-    waveform, sample_rate = torchaudio.load(audio_path)
-    start = time.time()
-    print(waveform.shape)
-    waveform = torchaudio.functional.resample(waveform, sample_rate, bundle.sample_rate).cuda()
-    with torch.inference_mode():
-        x, lengths = model.feature_extractor(waveform, length = None)
-        features = model.encoder.extract_features(x, lengths, 12)
-        end = time.time()
-        print('wavw2vec time: ', end - start)
+    waveform_all, sample_rate = torchaudio.load(audio_path)
+    print(waveform_all.shape)
+    l = waveform_all.shape[1]
+    timer1 = 0
+    timer2 = 0
+    timer1_list = []
+    timer2_list = []
+    for i in range(10):
         start = time.time()
-        emission = model.aux(features[-1]) 
-    transcript = decoder(emission[0]).lower().split("|")
-    end = time.time()
-    print('ctcdecoder time: ', end - start)
+        waveform = torchaudio.functional.resample(waveform_all[:, :int((i + 1)*l/10)], sample_rate, bundle.sample_rate).cuda()
+        with torch.inference_mode():
+            x, lengths = model.feature_extractor(waveform, length = None)
+            features = model.encoder.extract_features(x, lengths, 12)
+            end = time.time()
+            timer1 += end - start
+            timer1_list.append(end-start)
+            start = time.time()
+            emission = model.aux(features[-1]) 
+        transcript = decoder(emission[0]).lower().split("|")
+        end = time.time()
+        timer2 += end - start
+        timer2_list.append(end-start)
+    print('wavw2vec time: ', timer1)
+    print('ctcdecoder time: ', timer2)
+    print('wav2vec', timer1_list, 'ctc', timer2_list)
     return features[-1], transcript
 
 class GreedyCTCDecoder(torch.nn.Module):
@@ -126,15 +150,9 @@ def Squential_Pipeline(video_path, audio_path, dynamic_model_path, hyp_params):
 
     # feature extractions
     print('Extracting face embeddings!!!')
-    start = time.time()
     face_features = face_pipeline(face_detection_model = mtcnn, feature_extraction_model = resnet, video_path = video_path)
-    end = time.time()
-    print('time for face preprocessing:', end - start)
     print('Extracting audio features!!!!!')
-    start = time.time()
     audio_features, transcript = audio_pipeline(bundle = bundle, model = model, sample_rate = 16000, decoder = decoder, audio_path = audio_path)
-    end = time.time()
-    print('time for audio processing:', end - start)
     print(transcript)
 
     # get word embedding
@@ -156,19 +174,27 @@ def Squential_Pipeline(video_path, audio_path, dynamic_model_path, hyp_params):
     Dynamic_Multimodal_trained = torch.load(dynamic_model_path, map_location='cpu')
     model.load_state_dict(Dynamic_Multimodal_trained.state_dict())
     """
+    l1 = text.shape[2]
+    l2 = audio_features.shape[1]
+    l3 = face_features.shape[1]
+    m_list = []
     #predict sentiment
-    start = time.time()
-    face_features = torch.zeros(1, 10, 512).cuda()
     text = text.cuda()
+    print(text.shape, audio_features.shape, face_features.shape)
     with torch.no_grad():
-        Sentiment, _ = dynamic_model([text, audio_features, face_features])
-    print(Sentiment)
-    end = time.time()
+        Sentiment, _ = dynamic_model([text[:, :, :( 1)*int(l1/10) ], audio_features[:, :( 1)*int(l2/10), :], face_features[:, :( 1)*int(l3/10), :]])
+    for i in range(10):
+        with torch.no_grad():
+            start = time.time()
+            Sentiment, _ = dynamic_model([text[:, :, :(i + 1)*int(l1/10) ], audio_features[:, :(i + 1)*int(l2/10), :], face_features[:, :(i + 1)*int(l3/10), :]])
+            end = time.time()
+            m_list.append(end - start)
+    print('multimodality: ', m_list)
     print('time for multimodality learning: ', end-start)
 
 hyp_params1 = hyp_params()
 Squential_Pipeline(video_path = './_0efYOjQYRc_00.mp4', 
-                   audio_path = './cap.wav', 
+                   audio_path = './_0efYOjQYRc_00.wav', 
                    dynamic_model_path = 'model.pt',
                    hyp_params = hyp_params1)
 

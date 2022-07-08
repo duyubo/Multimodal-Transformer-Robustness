@@ -15,6 +15,9 @@ import torch
 import torchaudio
 import numpy
 from src.dynamic_models2 import *
+from facenet_pytorch import MTCNN, InceptionResnetV1
+import torch.nn as nn
+import torchvision.transforms as T
 torch.manual_seed(0)
          
 waveform = np.array([])
@@ -23,6 +26,104 @@ sentiment_value = 0
 audio_thread_ = None
 transcript_thread_ = None
 video_thread_ = None
+screen = None
+face_embeddings = []
+face_img = None
+
+class ED_model(nn.Module):
+    def __init__(self, in_channels=1, out_channels=7):
+        super(ED_model, self).__init__()
+
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.dropout1 = nn.Dropout(p=0.3)
+
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.dropout2 = nn.Dropout(p=0.3)
+
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn3 = nn.BatchNorm2d(128)
+        self.max_pool1 = nn.MaxPool2d(kernel_size=2, stride=2) # 48x48 -> 24x24
+        self.dropout3 = nn.Dropout(p=0.3)
+
+        self.conv4 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn4 = nn.BatchNorm2d(128)
+        self.dropout4 = nn.Dropout(p=0.3)
+
+        self.conv5 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn5 = nn.BatchNorm2d(128)
+        self.dropout5 = nn.Dropout(p=0.3)
+
+        self.conv6 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn6 = nn.BatchNorm2d(128)
+        self.max_pool2 = nn.MaxPool2d(kernel_size=2, stride=2) # 24x24 -> 12x12
+        self.dropout6 = nn.Dropout(p=0.3)
+
+        self.conv7 = nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn7 = nn.BatchNorm2d(64)
+        self.dropout7 = nn.Dropout(p=0.3)
+
+        self.conv8 = nn.Conv2d(in_channels=64, out_channels=16, kernel_size=3, stride=1, padding='same', bias=False)
+        self.bn8 = nn.BatchNorm2d(16)
+        self.max_pool3 = nn.MaxPool2d(kernel_size=2, stride=2) # 12x12 -> 6x6
+        self.dropout8 = nn.Dropout(p=0.3)
+
+        self.fc1 = nn.Linear(in_features=6*6*16, out_features=256)
+        self.fc2 = nn.Linear(in_features=256, out_features=32)
+        self.fc3 = nn.Linear(32, out_channels)
+
+
+    def forward(self, x):
+
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu(x)
+        x = self.dropout1(x) # <- block 1
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
+        x = self.dropout2(x) # <- block 2
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = F.relu(x)
+        x = self.max_pool1(x)
+        x = self.dropout3(x) # <- block 3
+
+        x = self.conv4(x)
+        x = self.bn4(x)
+        x = F.relu(x)
+        x = self.dropout4(x) # <- block 4
+        x = self.conv5(x)
+        x = self.bn5(x)
+        x = F.relu(x)
+        x = self.dropout5(x) # <- block 5
+        x = self.conv6(x)
+        x = self.bn6(x)
+        x = F.relu(x)
+        x = self.max_pool2(x)
+        x = self.dropout6(x) # <- block 6
+
+        x = self.conv7(x)
+        x = self.bn7(x)
+        x = F.relu(x)
+        x = self.dropout7(x) # <- block 7
+        x = self.conv8(x)
+        x = self.bn8(x)
+        x = F.relu(x)
+        x = self.max_pool3(x)
+        x = self.dropout8(x) # <- block 8
+
+        x = torch.flatten(x, start_dim=1)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        x = F.relu(x)
+        x = self.fc3(x)
+        x = F.softmax(x, dim=1)
+
+        return x
+
 
 class GreedyCTCDecoder(torch.nn.Module):
     def __init__(self, labels, blank=0):
@@ -35,13 +136,18 @@ class GreedyCTCDecoder(torch.nn.Module):
         indices = [i for i in indices if i != self.blank]
         return "".join([self.labels[i] for i in indices])
 
-def audio_pipeline(bundle, model, decoder, waveform, sample_rate): 
+def audio_pipeline(bundle, model, decoder, waveform, sample_rate):
+    start_time = time.time()
     waveform = torchaudio.functional.resample(waveform, sample_rate, bundle.sample_rate).cuda()
     with torch.inference_mode():
         x, lengths = model.feature_extractor(waveform, length = None)
         features = model.encoder.extract_features(x, lengths, 12)
+        end_time = time.time()
         emission = model.aux(features[-1]) 
     transcript = decoder(emission[0]).lower().split("|")
+    end_time1 = time.time()
+    #print('audio embedding time: ', end_time - start_time, 'audio to text: ', end_time1 - start_time)
+
     return features[-1], transcript
 
 class TranscriptTranslation():
@@ -51,6 +157,7 @@ class TranscriptTranslation():
         self.model = self.bundle.get_model().eval().cuda()
         #audio feature to text
         self.decoder = GreedyCTCDecoder(labels=self.bundle.get_labels()).eval().cuda()
+        #multimodality learning model
         self.sentiment_model = DynamicMULTModel(
             origin_dimensions = hyp_params.orig_d, dimension = hyp_params.dimension, 
             num_heads = hyp_params.num_heads, head_dim = hyp_params.head_dim, 
@@ -67,7 +174,15 @@ class TranscriptTranslation():
         ).cuda()
         Dynamic_Multimodal_trained = torch.load('./model.pt', map_location='cpu')
         self.sentiment_model.load_state_dict(Dynamic_Multimodal_trained.state_dict())
+        # bert tokenizer
         self.bert_tokenizer = BertTokenizer.from_pretrained('./bert_en')
+        # mtcnn for face detection
+        self.mtcnn = MTCNN(select_largest=True, post_process = False, device = 'cuda').eval()
+        # face embedding extraction
+        self.vggface2  = InceptionResnetV1(pretrained='vggface2').eval().cuda()
+        # face emotion extraction
+        self.face_model = ED_model(in_channels=1, out_channels=7).cuda()
+        self.face_model.load_state_dict(torch.load('./face_detection.pt'))
 
         self.open = True
         self.rate = rate
@@ -75,6 +190,7 @@ class TranscriptTranslation():
         global waveform
         global transcript
         global sentiment_value
+        global face_embeddings
         wave_length = 0
         translate_length = 0
         pipeline_interval = 10000# conduct inference for transcript every # samples
@@ -86,31 +202,107 @@ class TranscriptTranslation():
                     temp_length = waveform_temp.shape[1]
                     if temp_length > wave_length + pipeline_interval:
                         wave_length += pipeline_interval
+                        if temp_length > translate_length + translate_interval * 5:
+                            translate_length = temp_length - translate_interval
                         waveform_temp = waveform_temp[:, translate_length:]
                         if temp_length > translate_length + translate_interval:
                             translate_length += translate_interval
+                            face_embeddings = []
                         print(translate_length, waveform_temp.shape)
-                        features, text = audio_pipeline(self.bundle, self.model, self.decoder, waveform_temp, self.rate)
-                        transcript = ''
-                        for t in text:
-                            transcript += t + ' ' 
-                        if len(text) > 1:
-                            print(transcript)
-                            text = " ".join(text)
-                            encoded_bert_sent = self.bert_tokenizer.encode_plus(
-                                text, add_special_tokens=True, 
-                                max_length = len(transcript) + 2, 
-                                pad_to_max_length = True)
+                        if waveform_temp.abs().max() < 10:
+                            print('no voice, call vision!!!!')
+                            face_embeddings = self.call_vision(face_embeddings)
+                        else:
+                            features, text = audio_pipeline(self.bundle, self.model, self.decoder, waveform_temp, self.rate)
+                            transcript = ''
+                            for t in text:
+                                transcript += t + ' ' 
+                            if len(text) <= 1:
+                                print('no translated transcript, call vision')
+                                face_embeddings = self.call_vision(face_embeddings)
+                            else:
+                                print(transcript)
+                                text = " ".join(text)
+                                encoded_bert_sent = self.bert_tokenizer.encode_plus(
+                                    text, add_special_tokens=True, 
+                                    max_length = len(transcript) + 2, 
+                                    pad_to_max_length = True)
 
-                            bert_sentences = torch.LongTensor([encoded_bert_sent["input_ids"]])
-                            bert_sentence_types = torch.LongTensor([encoded_bert_sent["token_type_ids"]])
-                            bert_sentence_att_mask = torch.LongTensor([encoded_bert_sent["attention_mask"]])
-                            text = torch.stack([bert_sentences, bert_sentence_types, bert_sentence_att_mask])
-                            
-                            sentiment_value, _ = self.sentiment_model([text.cuda(), features.cuda(), torch.zeros(1, 2, 512).cuda()])
+                                bert_sentences = torch.LongTensor([encoded_bert_sent["input_ids"]])
+                                bert_sentence_types = torch.LongTensor([encoded_bert_sent["token_type_ids"]])
+                                bert_sentence_att_mask = torch.LongTensor([encoded_bert_sent["attention_mask"]])
+                                text = torch.stack([bert_sentences, bert_sentence_types, bert_sentence_att_mask])
+                        
+                        active_modality = []
+                        active_cross = [[]] * 3
+                        active_cross_output = [[]] * 3
+
+                        if type(text) == list:
+                            text_input = torch.zeros(3, 1, 5)
+                        else:
+                            text_input = text
+                            active_modality = [0, 1]
+                            active_cross[0] = ['ta']
+                            active_cross[1] = ['at']
+                            active_cross_output[0] = ['t', 'ta']
+                            active_cross_output[1] = ['a', 'at']
+                        """
+                        if len(face_embeddings) < 1:
+                            face_input = torch.zeros(1, 2, 512)
+                        else:
+                            face_input = torch.stack(face_embeddings)
+                            face_input = face_input.permute(1, 0, 2)
+                            active_modality.append(2)
+                            if active_cross[0]:
+                                active_cross[0] = ['ta', 'tv']
+                                active_cross[1] = ['at']
+                                active_cross[2] = ['vt']
+                                active_cross_output[0] = ['t', 'ta', 'tv']
+                                active_cross_output[1] = ['a', 'at']
+                                active_cross_output[2] = ['v', 'vt']
+                            else:
+                                active_cross_output[2] = ['v']
+                        """
+                        if active_modality:
+                            self.sentiment_model.set_active_modalities(active_modality = active_modality, active_cross = active_cross, active_cross_output = active_cross_output)
+                            sentiment_value, _ = self.sentiment_model([text_input.cuda(), features.cuda(), face_input.cuda()])
                             sentiment_value = sentiment_value.item()
-                            print('sentiment analysis result: ', sentiment_value)
-                            self.sentiment_model.set_active_modalities(active_modality = [0], active_cross = [[], [], []], active_cross_output = [['t'], [], []])
+                        
+                            if face_embeddings != []:
+                                sentiment_value += sum(face_embeddings)/len(face_embeddings)
+                        else:
+                            if face_embeddings != []:
+                                sentiment_value = sum(face_embeddings)/len(face_embeddings)
+                        print('sentiment analysis result: ', sentiment_value)
+                
+    def call_vision(self, face_embeddings):
+        global screen
+        global face_img
+        label_dict = {0:'Anger', 1:'Disgust', 2:'Fear', 3:'Happy', 4:'Neutral', 5:'Sad', 6:'Surprise'}
+        if screen is not None:
+            face_img = self.mtcnn(screen)
+            if face_img is not None:
+                with torch.inference_mode():
+                    """face_embedding = self.vggface2(((face_img - 127.5) / 128.0).unsqueeze(0).cuda())
+                    face_embeddings.append(face_embedding.cpu())"""
+                    transforms = torch.nn.Sequential(
+                        T.Resize((48,48)),
+                        T.Grayscale(num_output_channels=1)
+                    )
+
+                    img = transforms(face_img) / 255
+                    output = self.face_model(img.type(torch.FloatTensor).unsqueeze(dim=0).cuda())
+                    label = int(torch.argmax(output))
+                    print(label_dict[label])
+                    if label == 3:
+                        face_embeddings.append(1.5)
+                    elif label == 4 or label == 6:
+                        face_embeddings.append(0)
+                    else:
+                        face_embeddings.append(-1)
+
+        return face_embeddings
+
     def start(self):
         global transcript_thread_
         transcript_thread_ = threading.Thread(target=self.get_transcript)
@@ -213,8 +405,11 @@ class VideoRecorder():
         dim = (80, 80)
         global transcript
         global sentiment_value
+        global screen
+        global face_img
         while self.open:
             ret, video_frame = self.video_cap.read()
+            screen = video_frame
             if ret:
                 self.frame_counts += 1
                 text = transcript
@@ -226,12 +421,15 @@ class VideoRecorder():
                 
                 if sentiment_value > 0.5:
                     face = smile_img
-                elif sentiment_value < -0.5:
+                elif sentiment_value < -0:
                     face = emo_img
                 else:
                     face = peace_img
                 face = cv2.resize(face, dim, interpolation = cv2.INTER_AREA)  
                 video_frame[y_offset:y_offset + face.shape[0], x_offset:x_offset + face.shape[1]] = face
+                if face_img is not None:
+                    face_img_display = cv2.resize(face_img.permute(1, 2, 0).numpy(), dim, interpolation = cv2.INTER_AREA)
+                    video_frame[y_offset:y_offset + face.shape[0], x_offset + face.shape[1] * 2:x_offset + face.shape[1] * 3] = face_img_display
                 cv2.imshow('video_frame', video_frame)
                 self.video_out.write(video_frame)
                 cv2.waitKey(1)
