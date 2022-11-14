@@ -23,9 +23,13 @@ Gradient Blend, On-the-fly [3][5] explore the accuracy drop problem during infer
 ## Our Proposed Methods
 Based on the obervations that the weak modalities can not learn well during the learning process and only the model related to strong modalities will be updated. We propose the random modality and fusion module selection algorithm. 
 
-For the fusion modules we use the transformer module MULt-trans same as in [7] But we 1. construct the combination of all fusion choices with MULT-trans module 2. enable the dynamic drop/add of fusion modules during training. 3. enable the dynamic drop/add of modalities during fusion process. All the dynamic mentioned above are all random.
-
+For the fusion modules we use the transformer module MULt-trans same as in [7]. 
 ![alt text](MULT.JPG)
+
+But we 1. construct the combination of all fusion choices with MULT-trans module 2. enable the dynamic drop/add of fusion modules during training. 3. enable the dynamic drop/add of modalities during fusion process. All the dynamic mentioned above are all random. 
+![alt text](Dynamic.JPG)
+
+
 
 ## Datasets
 ## Environment Requirements & Installation Instructions
