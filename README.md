@@ -13,6 +13,13 @@ Sentiment Analysis, Robotic Arm Movement Control, object recognization, health m
 In real world applications, such as IoT applications, the sensors may not be stable and the information from these sensors will not be avaliable for a while. We conduct experiments to simulate the scenarios and find that if we train the model with full modalities and discard some of them in the inference stage, the accuracy will drop a lot. The single modality accuracy will be even lower than training this modality from scratch. Training all combinations of modalities from scratch and switch the model during inference is one possible solution. However, it requires a lot of training efforts and consumes a lot of memory for saving the models. Then a method that can have the least accuracy drop for missing modality during inference and save both training time and model size is needed.
 
 ## Related work
+
+Multibench [1] is a benchmark work that assembles several seperatable multimodality learning datasets and sota multimodality learning algorithms. 
+
+HighMMT [2] is proposed based on the work of Multibench and it shares the same model architecture and same weights among all modalities. With the proposed method, it saves the model size while keeps a moderate loss of accuracy.
+
+On-the-fly [3]
+
 ## Our Proposed Methods
 ## Datasets
 ## Environment Requirements & Installation Instructions
@@ -26,11 +33,14 @@ In real world applications, such as IoT applications, the sensors may not be sta
 
 
 ## References
-[1] 
-[2]
-[3]
+[1] Liang, Paul Pu, et al. "Multibench: Multiscale benchmarks for multimodal representation learning." arXiv preprint arXiv:2107.07502 (2021).
+
+[2] Liang, Paul Pu, et al. "HighMMT: Towards Modality and Task Generalization for High-Modality Representation Learning." arXiv preprint arXiv:2203.01311 (2022).
+
+[3] 
 
 [4] Chen, Luke, Mohanad Odema, and Mohammad Abdullah Al Faruque. "Romanus: Robust Task Offloading in Modular Multi-Sensor Autonomous Driving Systems." arXiv preprint arXiv:2207.08865 (2022).
 
 [5]
+
 [6]
