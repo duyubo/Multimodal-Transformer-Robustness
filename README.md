@@ -29,10 +29,19 @@ For the fusion modules we use the transformer module MULt-trans same as in [7].
 But we 1. construct the combination of all fusion choices with MULT-trans module 2. enable the dynamic drop/add of fusion modules during training. 3. enable the dynamic drop/add of modalities during fusion process. All the dynamic mentioned above are all random. 
 ![alt text](Dynamic.JPG)
 
-
-
 ## Datasets
+
+**MOSI**: http://multicomp.cs.cmu.edu/resources/cmu-mosi-dataset/
+
+**MOSEI**: http://multicomp.cs.cmu.edu/resources/cmu-mosei-dataset/
+
+**avMNIST**: https://github.com/pliang279/MultiBench/tree/main/datasets/avmnist
+
+**URFUNNY**: https://github.com/ROC-HCI/UR-FUNNY
+
 ## Environment Requirements & Installation Instructions
+Pytorch 1.10+, Python 3.6+
+
 ## Potential Ideas
 
 **1. Exploring more application scenarios**: in paper [4], it considers from the dynamic in environment instead of the avaliability change of sensors. For different applications, maybe we can consider from the dynamics in computing resources constraints, user demands, network traffic, etc.
