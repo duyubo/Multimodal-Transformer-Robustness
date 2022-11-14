@@ -16,11 +16,14 @@ In real world applications, such as IoT applications, the sensors may not be sta
 
 Multibench [1] is a benchmark work that assembles several seperatable multimodality learning datasets and sota multimodality learning algorithms. 
 
-HighMMT [2] is proposed based on the work of Multibench and it shares the same model architecture and same weights among all modalities. With the proposed method, it saves the model size while keeps a moderate loss of accuracy.
+HighMMT [2] is proposed based on the work of Multibench and Unit [6]. It shares the same model architecture and same weights among all modalities. With the proposed method, it saves the model size while keeps a moderate loss of accuracy.
 
 Gradient Blend, On-the-fly [3][5] explore the accuracy drop problem during inference from the perspective of back-propogation of training process. They proposes that the strong modality will dominate the learning process and disable the weaker modalities to learn. They add some regularation terms to differen modalities so that they can have equal chance to learn.
 
 ## Our Proposed Methods
+Based on the obervations that the weak modalities can not learn well during the learning process and only the model related to strong modalities will be updated. We propose the random modality and fusion module selection algorithm. 
+
+For the fusion modules we use the transformer module MULt-trans same as in [7] But we 1. construct the combination of all fusion choices with MULT-trans module 2. enable the dynamic drop/add of fusion modules during training. 3. enable the dynamic drop/add of modalities during fusion process. All the dynamic mentioned above are all random.
 
 
 ## Datasets
@@ -45,4 +48,6 @@ Gradient Blend, On-the-fly [3][5] explore the accuracy drop problem during infer
 
 [5] Peng, Xiaokang, et al. "Balanced Multimodal Learning via On-the-fly Gradient Modulation." Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 2022.
 
-[6]
+[6] Hu, Ronghang, and Amanpreet Singh. "Unit: Multimodal multitask learning with a unified transformer." Proceedings of the IEEE/CVF International Conference on Computer Vision. 2021.
+
+[7] Tsai, Yao-Hung Hubert, et al. "Multimodal transformer for unaligned multimodal language sequences." Proceedings of the conference. Association for Computational Linguistics. Meeting. Vol. 2019. NIH Public Access, 2019.
