@@ -25,6 +25,7 @@ Based on the obervations that the weak modalities can not learn well during the 
 
 For the fusion modules we use the transformer module MULt-trans same as in [7] But we 1. construct the combination of all fusion choices with MULT-trans module 2. enable the dynamic drop/add of fusion modules during training. 3. enable the dynamic drop/add of modalities during fusion process. All the dynamic mentioned above are all random.
 
+![alt text](MULT.JPG)
 
 ## Datasets
 ## Environment Requirements & Installation Instructions
