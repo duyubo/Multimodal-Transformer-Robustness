@@ -1,1 +1,36 @@
-# Improving robustness of Multimodality Learning when modality lost happens
+# Improving Robustness of Multimodal Learning Under Missing Modality Conditions
+## Introduction
+**1. What's multimodal learning**
+
+Combining information in different formats such as video, audio, text, image, time series data to process information and make decisions for downstream tasks.
+
+**2. Application Secenarios**
+
+Sentiment Analysis, Robotic Arm Movement Control, object recognization, health monitoring, object localization
+
+## Motivations & Observations
+
+In real world applications, such as IoT applications, the sensors may not be stable and the information from these sensors will not be avaliable for a while. We conduct experiments to simulate the scenarios and find that if we train the model with full modalities and discard some of them in the inference stage, the accuracy will drop a lot. The single modality accuracy will be even lower than training this modality from scratch. Training all combinations of modalities from scratch and switch the model during inference is one possible solution. However, it requires a lot of training efforts and consumes a lot of memory for saving the models. Then a method that can have the least accuracy drop for missing modality during inference and save both training time and model size is needed.
+
+## Related work
+## Our Proposed Methods
+## Datasets
+## Environment Requirements & Installation Instructions
+## Potential Ideas
+
+**1. Exploring more application scenarios**: in paper [4], it considers from the dynamic in environment instead of the avaliability change of sensors. For different applications, maybe we can consider from the dynamics in computing resources constraints, user demands, network traffic, etc.
+
+**2. Exploring theory behind random modality chosen**: The main idea of our proposed method is to make the modalities and modality fusion modules to randomly attend the learning process. Although this method has the ability to bring back the missing modality performance of inference similar to training these modalities from scratch. It is simple and not that intelligent. The next step could also be how to imrpove this random algorithm to a more intelligent one? Or explaining why the random selection works.
+
+**3. Exploring modality help**: In MOSEI dataset, we found that the transcript modality is the strongest one for the sentiment analysis tasks. But there are correlations between video/audio and transcript. How to take full use of these correlations and help the video/audio modality learn more information and have better performance when the transcript is not avaliable during inference. The key point may exist in the design of fusion module.
+
+
+## References
+[1] 
+[2]
+[3]
+
+[4] Chen, Luke, Mohanad Odema, and Mohammad Abdullah Al Faruque. "Romanus: Robust Task Offloading in Modular Multi-Sensor Autonomous Driving Systems." arXiv preprint arXiv:2207.08865 (2022).
+
+[5]
+[6]
