@@ -18,9 +18,11 @@ Multibench [1] is a benchmark work that assembles several seperatable multimodal
 
 HighMMT [2] is proposed based on the work of Multibench and it shares the same model architecture and same weights among all modalities. With the proposed method, it saves the model size while keeps a moderate loss of accuracy.
 
-On-the-fly [3]
+Gradient Blend, On-the-fly [3][5] explore the accuracy drop problem during inference from the perspective of back-propogation of training process. They proposes that the strong modality will dominate the learning process and disable the weaker modalities to learn. They add some regularation terms to differen modalities so that they can have equal chance to learn.
 
 ## Our Proposed Methods
+
+
 ## Datasets
 ## Environment Requirements & Installation Instructions
 ## Potential Ideas
@@ -37,10 +39,10 @@ On-the-fly [3]
 
 [2] Liang, Paul Pu, et al. "HighMMT: Towards Modality and Task Generalization for High-Modality Representation Learning." arXiv preprint arXiv:2203.01311 (2022).
 
-[3] 
+[3] Wang, Weiyao, Du Tran, and Matt Feiszli. "What makes training multi-modal classification networks hard?." Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 2020.
 
 [4] Chen, Luke, Mohanad Odema, and Mohammad Abdullah Al Faruque. "Romanus: Robust Task Offloading in Modular Multi-Sensor Autonomous Driving Systems." arXiv preprint arXiv:2207.08865 (2022).
 
-[5]
+[5] Peng, Xiaokang, et al. "Balanced Multimodal Learning via On-the-fly Gradient Modulation." Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 2022.
 
 [6]
