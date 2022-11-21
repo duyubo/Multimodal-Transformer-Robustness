@@ -1,4 +1,35 @@
-# Improving Robustness of Multimodal Learning Under Missing Modality Conditions
+# Improving Robustness of Multimodal Learning Under Missing Modality ConditionsR
+## User Guide
+### Environment Requirements & Installation Instructions
+Python 3.6+, Pytorch1.10+, cuda10.2+, dos2unix, timm, torchaudio, moabb
+
+### Files
+The whole framework is a dynamic modalities and fusion modules selection for training process.
+
+- main.py: main file that conduct training and testing of the dynamic modalities & fusion modules
+- EA.py: evolutionary algorithm that can select the best modality & fusion module combinations
+- src/
+  - data_utils.py: utilization functions for dataset processing
+  - dataset.py: data loader for training 
+  - dynamic_models2.py: packaging of the multimodal with dynamic modality number, fusion modules, dynamic transformer layer number, dynamic attention head and head dimension
+  - eval_metrics.py: evaluation metrics
+  - models2.py: parent class of dynamic_models2
+  - train.py: dynamic training files
+  - utils.py:
+- modules/
+  - dynamic_layers.py: implementation of dynamic transformer layer number
+  - dynamic_multihead_attention.py: implementation of dynamic attention head and head dimension
+  - dynamic_transformer.py: packaging of dynamic_layers and dynamic_multihead_attention
+  - multihead_attention.py: parent class of dynamic_multihead_attention
+  - position_embedding.py: position embedding module of transformers
+  - transformer.py: parent class of transformer
+- data_prep/
+  - extract_features.py: extract features from raw video (facenet), audio (wave2vec) files for sentiment analysis tasks
+  - process_data.py: split video & audio files with the provided timestamps of MOSEI 
+  - std_folder.py: train, validation, test splition file providede by MOSEI
+  
+### Running of code
+
 ## Introduction
 **1. What's multimodal learning**
 
@@ -38,9 +69,6 @@ But we 1. construct the combination of all fusion choices with MULT-trans module
 **avMNIST**: https://github.com/pliang279/MultiBench/tree/main/datasets/avmnist
 
 **URFUNNY**: https://github.com/ROC-HCI/UR-FUNNY
-
-## Environment Requirements & Installation Instructions
-Pytorch 1.10+, Python 3.6+
 
 ## Potential Ideas
 
