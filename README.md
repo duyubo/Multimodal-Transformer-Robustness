@@ -29,6 +29,7 @@ The whole framework is a dynamic modalities and fusion modules selection for tra
   - std_folder.py: train, validation, test splition file providede by MOSEI
   
 ### Running of code
+python3 main.py --dataset mosei_senti --attn_dropout 0.1 0.1 0.0 0.0 --modality_pool 2 --num_epochs 20 --lr 0.0001 --when 120 --dimension 200 --num_heads 8  --head_dim 25 --layers_single_attn 3 --layers_self_attn 2 --batch_size 16 --experiment_type test_single --data_path {preprocessed_data_path} --model_path {path_to_save_model}.pt
 
 ## Introduction
 **1. What's multimodal learning**
