@@ -6,8 +6,8 @@ This is a real time application of the robust multimodality learning for sentime
 - mtcnn: https://towardsdatascience.com/face-detection-using-mtcnn-a-guide-for-face-extraction-with-a-focus-on-speed-c6d59f82d49
 - ninja: pip3 install ninja
 - torch_audio: 
- - upgrade cmake: https://graspingtech.com/upgrade-cmake/ and https://github.com/jetsonhacks/buildLibrealsense2TX/issues/13
- - install: git clone -b ${TORCHAUDIO_VERSION} https://github.com/pytorch/audio torchaudio && cd torchaudio && python3 setup.py install && cd ../ && \
+  - upgrade cmake: https://graspingtech.com/upgrade-cmake/ and https://github.com/jetsonhacks/buildLibrealsense2TX/issues/13
+  - install: git clone -b ${TORCHAUDIO_VERSION} https://github.com/pytorch/audio torchaudio && cd torchaudio && python3 setup.py install && cd ../ && \
 
 **Necessary File**
 - folder bert-en: download pytorch_model.bin, config.json, and vocab.txt from https://huggingface.co/bert-base-uncased/tree/main into this folder 
